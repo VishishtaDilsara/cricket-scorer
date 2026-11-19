@@ -283,3 +283,6 @@ a.brand:hover, .brand a:hover { text-decoration: underline; text-underline-offse
 .stat-chips { display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 12px; }
 .stat-chips .k { font-size: 11px; color: var(--dim); font-weight: 700; }
 .stat-chips .v { font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.player-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.player-tile { display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); min-width: 0; }
+.player-tile:hover { border-color: var(--line-2); background: var(--panel); }

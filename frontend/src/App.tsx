@@ -1,6 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
-import { CalendarDays, LayoutGrid, LogOut, Plus, Radio, Search, Shield, Trophy, UserCog } from 'lucide-react'
+import { CalendarDays, LayoutGrid, LogOut, Plus, Radio, Search, Shield, Trophy, UserCog, Users } from 'lucide-react'
 import { useAuth } from './auth'
 import { initials } from './ui'
 import Overview from './pages/Overview'
@@ -13,6 +13,7 @@ import TournamentPage from './pages/TournamentPage'
 import { PlayerPage, TeamPage, Teams } from './pages/Teams'
 import { Login, SearchPage } from './pages/Misc'
 import Scorers from './pages/Scorers'
+import Players from './pages/Players'
 
 const NAV = [
   { to: '/', label: 'Overview', icon: LayoutGrid, end: true },
@@ -20,6 +21,7 @@ const NAV = [
   { to: '/matches', label: 'Fixtures', icon: CalendarDays },
   { to: '/tournaments', label: 'Tournaments', icon: Trophy },
   { to: '/teams', label: 'Teams', icon: Shield },
+  { to: '/players', label: 'Players', icon: Users, sideOnly: true },
 ]
 
 function Shell() {
@@ -82,7 +84,7 @@ function Shell() {
         <Outlet />
       </div>
       <nav className="bottom-nav">
-        {NAV.map((n) => (
+        {NAV.filter((n) => !('sideOnly' in n)).map((n) => (
           <NavLink key={n.label} to={n.to} className={() => (active(n) ? 'active' : '')}><n.icon size={19} />{n.label.split(' ')[0]}</NavLink>
         ))}
       </nav>
@@ -103,7 +105,7 @@ function Private({ children, admin }: { children: ReactNode; admin?: boolean }) 
   const { user, ready } = useAuth()
   const loc = useLocation()
   if (!ready) return <div className="empty">Loading…</div>
-  if (!user) return <Navigate to={`/login?next=${encodeURIComponent(loc.pathname + loc.search)}`} replace />
+  if (!user) return <Navigate to={loc.pathname === '/' && !loc.search ? '/login' : `/login?next=${encodeURIComponent(loc.pathname + loc.search)}`} replace />
   if (admin && !user.admin) return <div className="page"><div className="card empty">Only an admin can do this. Ask your admin.</div></div>
   return <>{children}</>
 }
@@ -113,17 +115,18 @@ export default function App() {
     <Routes>
       <Route path="/matches/:id/score" element={<Private><Scorer /></Private>} />
       <Route element={<Shell />}>
-        <Route path="/" element={<Overview />} />
-        <Route path="/matches" element={<Matches />} />
+        <Route path="/" element={<Private><Overview /></Private>} />
+        <Route path="/matches" element={<Private><Matches /></Private>} />
         <Route path="/matches/new" element={<Private admin><NewMatch /></Private>} />
         <Route path="/scorers" element={<Private admin><Scorers /></Private>} />
         <Route path="/matches/:id" element={<MatchPage />} />
-        <Route path="/tournaments" element={<Tournaments />} />
+        <Route path="/tournaments" element={<Private><Tournaments /></Private>} />
         <Route path="/tournaments/:id" element={<TournamentPage />} />
-        <Route path="/teams" element={<Teams />} />
+        <Route path="/teams" element={<Private><Teams /></Private>} />
         <Route path="/teams/:id" element={<TeamPage />} />
+        <Route path="/players" element={<Private><Players /></Private>} />
         <Route path="/players/:id" element={<PlayerPage />} />
-        <Route path="/search" element={<SearchPage />} />
+        <Route path="/search" element={<Private><SearchPage /></Private>} />
         <Route path="/login" element={<Login />} />
         <Route path="*" element={<div className="page"><div className="empty">Page not found. <Link className="brand" to="/">Go to the overview</Link></div></div>} />
       </Route>

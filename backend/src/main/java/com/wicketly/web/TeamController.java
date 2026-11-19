@@ -5,9 +5,7 @@ import com.wicketly.repo.*;
 import com.wicketly.service.*;
 import com.wicketly.service.Views.MatchSummary;
 import com.wicketly.service.Views.TeamRef;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.transaction.annotation.Transactional;
@@ -46,6 +44,36 @@ public class TeamController {
         List<Team> list = q == null || q.isBlank() ? teams.findTop100ByOwnerIdOrderByCreatedAtDesc(org)
                 : teams.findTop20ByOwnerIdAndNameContainingIgnoreCaseOrderByName(org, q.trim());
         return list.stream().map(MatchService::ref).toList();
+    }
+
+    public record Squad(TeamRef team, List<Player> players) {}
+
+    /** Every player in the admin's space grouped by team, teams A to Z. Players in no team come last (team = null). */
+    @GetMapping("/squads")
+    List<Squad> squads(@AuthenticationPrincipal Jwt jwt) {
+        UUID org = Me.orgOf(Me.of(jwt));
+        if (org == null) return List.of();
+        List<Team> ts = new ArrayList<>(teams.findTop100ByOwnerIdOrderByCreatedAtDesc(org));
+        ts.sort(Comparator.comparing((Team t) -> t.name.toLowerCase()));
+        Map<UUID, Player> byId = new LinkedHashMap<>();
+        players.findByOwnerIdOrderByName(org).forEach(p -> byId.put(p.id, p));
+        Map<UUID, List<Player>> inTeam = new HashMap<>();
+        Set<UUID> placed = new HashSet<>();
+        for (TeamPlayer tp : teamPlayers.findByTeamIdIn(ts.stream().map(t -> t.id).toList())) {
+            Player p = byId.get(tp.playerId);
+            if (p == null) continue;
+            inTeam.computeIfAbsent(tp.teamId, k -> new ArrayList<>()).add(p);
+            placed.add(p.id);
+        }
+        List<Squad> out = new ArrayList<>();
+        for (Team t : ts) {
+            List<Player> ps = inTeam.getOrDefault(t.id, new ArrayList<>());
+            ps.sort(Comparator.comparing((Player p) -> p.name.toLowerCase()));
+            out.add(new Squad(MatchService.ref(t), ps));
+        }
+        List<Player> loose = byId.values().stream().filter(p -> !placed.contains(p.id)).toList();
+        if (!loose.isEmpty()) out.add(new Squad(null, loose));
+        return out;
     }
 
     @PostMapping("/teams")

@@ -11,5 +11,6 @@ import org.springframework.data.jpa.repository.Query;
 
 public interface TeamPlayerRepo extends JpaRepository<TeamPlayer, UUID> {
     List<TeamPlayer> findByPlayerId(UUID playerId);
+    List<TeamPlayer> findByTeamIdIn(Collection<UUID> teamIds);
     Optional<TeamPlayer> findByTeamIdAndPlayerId(UUID teamId, UUID playerId);
 }

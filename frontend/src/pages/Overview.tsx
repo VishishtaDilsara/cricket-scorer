@@ -33,7 +33,7 @@ export default function Overview() {
             <Tile label="Live now" value={data.counts.live} icon={<Radio size={14} />} to="/matches?tab=live" />
             <Tile label="Completed matches" value={data.counts.completed} icon={<CheckCircle2 size={14} />} to="/matches" />
             <Tile label="Teams" value={data.counts.teams} icon={<Shield size={14} />} to="/teams" />
-            <Tile label="Players" value={data.counts.players} icon={<Users size={14} />} to="/teams" />
+            <Tile label="Players" value={data.counts.players} icon={<Users size={14} />} to="/players" />
           </div>
 
           <div className="grid split">
