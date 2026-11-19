@@ -81,6 +81,11 @@ public class MatchController {
         return Map.of("mine", scoring.claim(id, Me.of(jwt), device, force));
     }
 
+    @PutMapping("/{id}/roles")
+    void roles(@PathVariable UUID id, @RequestBody MatchService.RolesReq r, @AuthenticationPrincipal Jwt jwt) {
+        matchService.setRoles(id, r, Me.of(jwt));
+    }
+
     @PostMapping("/{id}/start")
     void start(@PathVariable UUID id, @RequestBody StartReq r, @RequestHeader(value = DEVICE, required = false) String device, @AuthenticationPrincipal Jwt jwt) {
         scoring.start(id, r, Me.of(jwt), device);

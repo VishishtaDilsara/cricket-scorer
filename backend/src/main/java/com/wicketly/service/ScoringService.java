@@ -68,6 +68,8 @@ public class ScoringService {
         Match m = scorable(matchId, me, device);
         if (!m.state.equals("SCHEDULED")) return;
         if (m.teamAId == null || m.teamBId == null) throw Api.conflict("Both teams must be known before the match starts");
+        if (m.teamACaptainId == null || m.teamBCaptainId == null || m.teamAKeeperId == null || m.teamBKeeperId == null)
+            throw Api.bad("Choose a captain and a wicket-keeper for both teams before the toss");
         if (r.tossWinnerId() == null || !(r.tossWinnerId().equals(m.teamAId) || r.tossWinnerId().equals(m.teamBId)))
             throw Api.bad("Toss winner must be one of the two teams");
         boolean bat = "BAT".equals(r.decision());

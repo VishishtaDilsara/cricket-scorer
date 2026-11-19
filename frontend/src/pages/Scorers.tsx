@@ -4,6 +4,7 @@ import { api, errorText, useApi } from '../api'
 import type { ScorerAccount } from '../types'
 import { Field, Modal, Status, initials } from '../ui'
 import toast from 'react-hot-toast'
+import { confirm } from '../confirm'
 
 /** Admin only: the scorer accounts that can score this admin's matches. */
 export default function Scorers() {
@@ -12,7 +13,7 @@ export default function Scorers() {
   const [resetFor, setResetFor] = useState<ScorerAccount | null>(null)
 
   const remove = async (s: ScorerAccount) => {
-    if (!window.confirm(`Delete scorer "${s.username ?? s.name}"? They will be signed out and can no longer score.`)) return
+    if (!(await confirm({ title: `Delete scorer "${s.username ?? s.name}"?`, message: 'They will be signed out straight away and can no longer score your matches.', yes: 'Yes, delete', danger: true }))) return
     try { await api('DELETE', `/scorers/${s.id}`); toast.success('Scorer deleted'); await reload() } catch (e) { toast.error(errorText(e)) }
   }
 

@@ -5,12 +5,14 @@ import { Toaster } from 'react-hot-toast'
 import './index.css'
 import App from './App'
 import { AuthProvider } from './auth'
+import { ConfirmHost } from './confirm'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
       <AuthProvider>
         <App />
+        <ConfirmHost />
         <Toaster
           position="top-center"
           toastOptions={{

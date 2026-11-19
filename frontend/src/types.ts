@@ -51,8 +51,9 @@ export type InningsView = {
 export type MatchView = {
   summary: MatchSummary; rules: Rules; teamA: TeamFull | null; teamB: TeamFull | null
   tossWinnerId: string | null; tossDecision: string | null; listed: boolean; practice: boolean
-  overrideReason: string | null; playerOfMatchId: string | null; canScore: boolean; canManage: boolean; innings: InningsView[]
+  overrideReason: string | null; playerOfMatchId: string | null; canScore: boolean; canManage: boolean; innings: InningsView[]; roles: TeamRoles[]
 }
+export type TeamRoles = { teamId: string; captainId: string | null; viceCaptainId: string | null; keeperId: string | null }
 
 export type Tournament = {
   id: string; name: string; structure: 'LEAGUE' | 'GROUPS_KNOCKOUT' | 'KNOCKOUT'; venue: string | null; ballType: string | null
@@ -91,3 +92,13 @@ export type Overview = {
 }
 export type User = { id: string; email: string; name: string; username: string | null; role: 'ADMIN' | 'SCORER'; admin: boolean }
 export type ScorerAccount = User
+
+export type FormEntry = {
+  matchId: string; date: string; opponent: string | null; batted: boolean; runs: number; balls: number; out: boolean
+  dismissal: Dismissal | null; bowlBalls: number; conceded: number; wickets: number; ballsPerOver: number
+}
+export type PlayerProfile = {
+  form: FormEntry[]
+  scoring: { dots: number; ones: number; twos: number; threes: number; fours: number; sixes: number; other: number }
+  dismissals: Partial<Record<Dismissal, number>>
+}

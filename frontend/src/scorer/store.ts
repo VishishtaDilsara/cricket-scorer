@@ -225,6 +225,13 @@ export class ScorerStore {
     if (inn?.strikerId && inn.nonStrikerId) this.setPlayers({ strikerId: inn.nonStrikerId, nonStrikerId: inn.strikerId })
   }
 
+  /** Captain, vice-captain (optional) and wicket-keeper of one side. */
+  setRoles(teamId: string, r: { captainId: string | null; viceCaptainId: string | null; keeperId: string | null }) {
+    const doc = this.doc!
+    doc.roles = [...(doc.roles ?? []).filter((x) => x.teamId !== teamId), { teamId, ...r }]
+    this.push({ method: 'PUT', path: `/matches/${this.matchId}/roles`, body: { teamId, ...r } })
+  }
+
   addPlayer(teamId: string, name: string): string {
     const doc = this.doc!, id = uuid()
     const team = doc.teamA?.id === teamId ? doc.teamA : doc.teamB

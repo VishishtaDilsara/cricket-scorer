@@ -1,17 +1,20 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { Award, Pencil, Settings } from 'lucide-react'
+import { Award, FileDown, Pencil, Settings } from 'lucide-react'
 import { api, errorText, streamUrl, useApi } from '../api'
 import type { InningsView, MatchView } from '../types'
-import { Badge, BallChip, Field, Modal, ShareButton, StatePill, Status, fmtDate, scoreOf } from '../ui'
+import { Badge, BallChip, Field, Modal, ShareButton, StatePill, Status, fmtDate, roleTags, scoreOf } from '../ui'
 import { chase } from './Overview'
 import toast from 'react-hot-toast'
+import { confirm } from '../confirm'
+import type { ReportPom } from '../report'
 
 export default function MatchPage() {
   const { id } = useParams()
   const { data: v, error, loading, reload } = useApi<MatchView>(`/matches/${id}`)
   const [tab, setTab] = useState<'live' | 'scorecard' | 'overs'>('live')
   const [manage, setManage] = useState(false)
+  const [pdfBusy, setPdfBusy] = useState(false)
 
   // Live updates: the server pushes an event the moment a ball is committed (FR-LIVE-02).
   useEffect(() => {
@@ -38,6 +41,11 @@ export default function MatchPage() {
           </div>
           <div className="row wrap">
             <ShareButton title={`${m.teamA?.name ?? 'TBD'} v ${m.teamB?.name ?? 'TBD'}`} />
+            {v.canScore && v.innings.length > 0 && <button className="btn" disabled={pdfBusy} onClick={async () => {
+              setPdfBusy(true)
+              try { const { downloadMatchReport } = await import('../report'); await downloadMatchReport(v, reportPom(v)); toast.success('Report downloaded') }
+              catch (e) { toast.error(`Could not create the report: ${errorText(e)}`) } finally { setPdfBusy(false) }
+            }}><FileDown size={16} />{pdfBusy ? 'Preparing…' : 'PDF report'}</button>}
             {v.canManage && <button className="btn" onClick={() => setManage(true)}><Settings size={16} />Manage</button>}
             {v.canScore && m.teamA && m.teamB && <Link to={`/matches/${m.id}/score`} className="btn primary"><Pencil size={16} />{m.state === 'SCHEDULED' ? 'Start scoring' : 'Score'}</Link>}
           </div>
@@ -66,8 +74,9 @@ export default function MatchPage() {
         ))}
       </div>
       {!cur && <div className="card empty">The scorecard appears here as soon as the first ball is recorded. This page updates by itself.</div>}
+      {!cur && <div style={{ marginTop: 14 }}><Squads v={v} /></div>}
       {cur && tab === 'live' && <Summary v={v} inn={cur} toss={toss} />}
-      {tab === 'scorecard' && v.innings.map((inn) => <Scorecard key={inn.no} inn={inn} team={teamName(inn.battingTeamId)} perOver={v.rules.ballsPerOver} />)}
+      {tab === 'scorecard' && v.innings.map((inn) => <Scorecard key={inn.no} v={v} inn={inn} team={teamName(inn.battingTeamId)} perOver={v.rules.ballsPerOver} />)}
       {tab === 'overs' && [...v.innings].reverse().map((inn) => <Overs key={inn.no} inn={inn} team={teamName(inn.battingTeamId)} />)}
       {manage && <Manage v={v} onClose={() => { setManage(false); void reload() }} />}
     </div>
@@ -95,7 +104,7 @@ function Summary({ v, inn, toss }: { v: MatchView; inn: InningsView; toss: strin
             <thead><tr><th>Batter</th><th>R</th><th>B</th><th>4s</th><th>6s</th><th>SR</th></tr></thead>
             <tbody>
               {(inn.closed ? [] : atCrease).map((b) => (
-                <tr key={b.playerId}><td><Link to={`/players/${b.playerId}`} className="strong">{b.name}{b.playerId === inn.strikerId ? ' *' : ''}</Link></td>
+                <tr key={b.playerId}><td><Link to={`/players/${b.playerId}`} className="strong">{b.name}{roleTags(v, b.playerId)}{b.playerId === inn.strikerId ? ' *' : ''}</Link></td>
                   <td className="strong">{b.runs}</td><td>{b.balls}</td><td>{b.fours}</td><td>{b.sixes}</td><td>{b.balls ? ((b.runs * 100) / b.balls).toFixed(1) : '–'}</td></tr>
               ))}
               {(inn.closed || !atCrease.length) && <tr><td colSpan={6} className="muted">{inn.closed ? 'Innings complete' : 'Waiting for the batters'}</td></tr>}
@@ -104,7 +113,7 @@ function Summary({ v, inn, toss }: { v: MatchView; inn: InningsView; toss: strin
           {bowler && !inn.closed && (
             <div className="table-scroll"><table className="table">
               <thead><tr><th>Bowler</th><th>O</th><th>M</th><th>R</th><th>W</th><th>Econ</th></tr></thead>
-              <tbody><tr><td><Link to={`/players/${bowler.playerId}`} className="strong">{bowler.name}</Link></td><td>{oversOf(bowler.balls, v.rules.ballsPerOver)}</td><td>{bowler.maidens}</td><td>{bowler.runs}</td><td className="strong">{bowler.wickets}</td><td>{econ(bowler.runs, bowler.balls, v.rules.ballsPerOver)}</td></tr></tbody>
+              <tbody><tr><td><Link to={`/players/${bowler.playerId}`} className="strong">{bowler.name}{roleTags(v, bowler.playerId)}</Link></td><td>{oversOf(bowler.balls, v.rules.ballsPerOver)}</td><td>{bowler.maidens}</td><td>{bowler.runs}</td><td className="strong">{bowler.wickets}</td><td>{econ(bowler.runs, bowler.balls, v.rules.ballsPerOver)}</td></tr></tbody>
             </table></div>
           )}
         </div>
@@ -121,6 +130,7 @@ function Summary({ v, inn, toss }: { v: MatchView; inn: InningsView; toss: strin
       </div>
       <div className="col" style={{ gap: 14 }}>
       {v.summary.state === 'COMPLETED' && <PlayerOfMatchCard v={v} />}
+      <Squads v={v} />
       <div className="card col">
         <h2>Match info</h2>
         {toss && <div><div className="small dim">Toss</div>{toss}</div>}
@@ -190,6 +200,52 @@ function statLine(p: Impact, bpo: number) {
   return parts.join(' · ')
 }
 
+/** The player of the match for the PDF report: the admin's pick, otherwise the best impact. */
+function reportPom(v: MatchView): ReportPom {
+  if (!v.innings.length) return null
+  const all = impacts(v)
+  const chosen = v.playerOfMatchId
+  const p = chosen ? all.find((x) => x.playerId === chosen) : all[0]
+  const squad = [v.teamA, v.teamB].find((t) => t?.players.some((x) => x.id === chosen))
+  const name = p?.name ?? squad?.players.find((x) => x.id === chosen)?.name
+  if (!name) return null
+  const teamId = p?.teamId ?? squad?.id ?? null
+  const team = [v.summary.teamA, v.summary.teamB].find((t) => t?.id === teamId)?.name ?? null
+  return { name, team, line: p ? statLine(p, v.rules.ballsPerOver) : '', auto: !chosen }
+}
+
+/** Both squads with the captain, vice-captain and wicket-keeper marked. */
+function Squads({ v }: { v: MatchView }) {
+  const teams = [v.teamA, v.teamB].filter((t): t is NonNullable<typeof t> => !!t && t.players.length > 0)
+  if (!teams.length) return null
+  const order = (r: MatchView['roles'][number] | undefined, id: string) => (r?.captainId === id ? 0 : r?.viceCaptainId === id ? 1 : r?.keeperId === id ? 2 : 3)
+  return (
+    <div className="card col">
+      <h2>Squads</h2>
+      <div className="squads">
+        {teams.map((t) => {
+          const r = v.roles?.find((x) => x.teamId === t.id)
+          return (
+            <div key={t.id} className="col" style={{ gap: 6 }}>
+              <div className="row" style={{ gap: 8 }}><Badge team={t} /><span className="strong">{t.name}</span></div>
+              {[...t.players].sort((a, b) => order(r, a.id) - order(r, b.id)).map((p) => (
+                <Link key={p.id} to={`/players/${p.id}`} className="row between small" style={{ gap: 8 }}>
+                  <span className="truncate">{p.name}</span>
+                  <span className="row" style={{ gap: 4 }}>
+                    {r?.captainId === p.id && <span className="pill brand">C</span>}
+                    {r?.viceCaptainId === p.id && <span className="pill">VC</span>}
+                    {r?.keeperId === p.id && <span className="pill good">WK</span>}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function PlayerOfMatchCard({ v }: { v: MatchView }) {
   const all = impacts(v)
   const chosen = v.playerOfMatchId
@@ -220,7 +276,7 @@ const oversOf = (balls: number, bpo: number) => `${Math.floor(balls / bpo)}.${ba
 const econ = (runs: number, balls: number, bpo: number) => (balls ? ((runs * bpo) / balls).toFixed(2) : '–')
 const extras = (inn: InningsView) => inn.state.wides + inn.state.noBalls + inn.state.byes + inn.state.legByes + inn.state.penalties
 
-function Scorecard({ inn, team, perOver }: { inn: InningsView; team: string; perOver: number }) {
+function Scorecard({ v, inn, team, perOver }: { v: MatchView; inn: InningsView; team: string; perOver: number }) {
   const st = inn.state
   return (
     <div className="card flush" style={{ marginBottom: 14 }}>
@@ -229,7 +285,7 @@ function Scorecard({ inn, team, perOver }: { inn: InningsView; team: string; per
         <thead><tr><th>Batting</th><th className="left">How out</th><th>R</th><th>B</th><th>4s</th><th>6s</th><th>SR</th></tr></thead>
         <tbody>
           {st.batters.map((b) => (
-            <tr key={b.playerId}><td><Link to={`/players/${b.playerId}`} className="strong">{b.name}</Link></td><td className="left muted">{b.howOut}</td>
+            <tr key={b.playerId}><td><Link to={`/players/${b.playerId}`} className="strong">{b.name}{roleTags(v, b.playerId)}</Link></td><td className="left muted">{b.howOut}</td>
               <td className="strong">{b.runs}</td><td>{b.balls}</td><td>{b.fours}</td><td>{b.sixes}</td><td>{b.balls ? ((b.runs * 100) / b.balls).toFixed(1) : '–'}</td></tr>
           ))}
           <tr><td>Extras</td><td className="left muted">wd {st.wides}, nb {st.noBalls}, b {st.byes}, lb {st.legByes}{st.penalties ? `, pen ${st.penalties}` : ''}</td><td className="strong">{extras(inn)}</td><td colSpan={4} /></tr>
@@ -240,7 +296,7 @@ function Scorecard({ inn, team, perOver }: { inn: InningsView; team: string; per
         <thead><tr><th>Bowling</th><th>O</th><th>M</th><th>R</th><th>W</th><th>Econ</th><th>Wd</th><th>Nb</th></tr></thead>
         <tbody>
           {st.bowlers.map((b) => (
-            <tr key={b.playerId}><td><Link to={`/players/${b.playerId}`} className="strong">{b.name}</Link></td><td>{oversOf(b.balls, perOver)}</td><td>{b.maidens}</td><td>{b.runs}</td>
+            <tr key={b.playerId}><td><Link to={`/players/${b.playerId}`} className="strong">{b.name}{roleTags(v, b.playerId)}</Link></td><td>{oversOf(b.balls, perOver)}</td><td>{b.maidens}</td><td>{b.runs}</td>
               <td className="strong">{b.wickets}</td><td>{econ(b.runs, b.balls, perOver)}</td><td>{b.wides}</td><td>{b.noBalls}</td></tr>
           ))}
         </tbody>
@@ -323,7 +379,7 @@ function Manage({ v, onClose }: { v: MatchView; onClose: () => void }) {
             <button className="btn" onClick={() => run(() => api('PUT', `/matches/${m.id}/player-of-match`, { playerId: pom || null }), 'Player of the match saved')}>Save player of the match</button>
           </div>
         )}
-        <button className="btn danger" onClick={() => { if (window.confirm('Delete this match and all its balls? This cannot be undone.')) void run(async () => { await api('DELETE', `/matches/${m.id}`); nav('/matches') }, 'Deleted') }}>Delete match</button>
+        <button className="btn danger" onClick={async () => { if (await confirm({ title: 'Delete this match?', message: 'The match and every ball recorded in it are deleted. This cannot be undone.', yes: 'Yes, delete', danger: true })) void run(async () => { await api('DELETE', `/matches/${m.id}`); nav('/matches') }, 'Deleted') }}>Delete match</button>
       </div>
     </Modal>
   )

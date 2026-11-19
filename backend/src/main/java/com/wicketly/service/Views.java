@@ -31,5 +31,8 @@ public final class Views {
 
     public record MatchView(MatchSummary summary, Rules rules, TeamFull teamA, TeamFull teamB, UUID tossWinnerId,
                             String tossDecision, boolean listed, boolean practice, String overrideReason, UUID playerOfMatchId,
-                            boolean canScore, boolean canManage, List<InningsView> innings) {}
+                            boolean canScore, boolean canManage, List<InningsView> innings, List<TeamRoles> roles) {}
+
+    /** Captain, vice-captain and wicket-keeper of one side for this match. Any of them may still be null. */
+    public record TeamRoles(UUID teamId, UUID captainId, UUID viceCaptainId, UUID keeperId) {}
 }

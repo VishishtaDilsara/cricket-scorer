@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { Check, Share2, X } from 'lucide-react'
-import type { MatchSummary, TeamRef } from './types'
+import type { MatchSummary, MatchView, TeamRef } from './types'
 
 const HUES = [199, 162, 262, 28, 340, 48, 215, 130]
 function hue(text: string) {
@@ -19,7 +19,7 @@ export function Badge({ team, large }: { team: TeamRef | null; large?: boolean }
   const text = team ? team.shortName || initials(team.name) : '?'
   const h = hue(team?.name ?? '?')
   return (
-    <span className={`badge ${large ? 'lg' : ''}`} style={{ background: `hsl(${h} 60% 18%)`, color: `hsl(${h} 90% 78%)` }}>
+    <span className={`badge ${large ? 'lg' : ''}`} style={{ background: `hsl(${h} 45% 92%)`, color: `hsl(${h} 55% 28%)`, borderColor: `hsl(${h} 35% 80%)` }}>
       {text}
     </span>
   )
@@ -147,4 +147,13 @@ export function Status({ loading, error }: { loading: boolean; error: string | n
 
 export function Field({ label, children }: { label: string; children: ReactNode }) {
   return <label className="field">{label}{children}</label>
+}
+
+/** Scorecard tags for a player in this match: (c) captain, (vc) vice-captain, (wk) wicket-keeper. */
+export function roleTags(v: Pick<MatchView, 'roles'>, playerId: string | null): string {
+  if (!playerId) return ''
+  const r = (v.roles ?? []).find((x) => x.captainId === playerId || x.viceCaptainId === playerId || x.keeperId === playerId)
+  if (!r) return ''
+  const tags = [r.captainId === playerId && 'c', r.viceCaptainId === playerId && 'vc', r.keeperId === playerId && 'wk'].filter(Boolean)
+  return ` (${tags.join(', ')})`
 }

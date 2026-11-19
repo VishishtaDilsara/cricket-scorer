@@ -44,9 +44,69 @@ public class StatsService {
     private final BallRepo balls;
     private final PlayerRepo players;
     private final MatchRepo matches;
+    private final TeamRepo teams;
 
-    public StatsService(InningsRepo inningsRepo, BallRepo balls, PlayerRepo players, MatchRepo matches) {
-        this.inningsRepo = inningsRepo; this.balls = balls; this.players = players; this.matches = matches;
+    public StatsService(InningsRepo inningsRepo, BallRepo balls, PlayerRepo players, MatchRepo matches, TeamRepo teams) {
+        this.inningsRepo = inningsRepo; this.balls = balls; this.players = players; this.matches = matches; this.teams = teams;
+    }
+
+    /** One match in a player's career, oldest first, for the profile charts and the PDF report. */
+    public record FormEntry(UUID matchId, java.time.Instant date, String opponent, boolean batted, int runs, int balls, boolean out,
+                            String dismissal, int bowlBalls, int conceded, int wickets, int ballsPerOver) {}
+    /** How the player's runs came: balls faced that went for 0, 1, 2, 3, 4, 6 or another number of runs. */
+    public record Scoring(int dots, int ones, int twos, int threes, int fours, int sixes, int other) {}
+    public record Profile(List<FormEntry> form, Scoring scoring, Map<String, Integer> dismissals) {}
+
+    public Profile profile(UUID playerId) {
+        Set<UUID> matchIds = inningsRepo.findAllById(balls.inningsOfPlayer(playerId)).stream().map(i -> i.matchId).collect(Collectors.toSet());
+        List<Match> ms = matches.findAllById(matchIds).stream().filter(m -> !m.practice)
+                .sorted(Comparator.comparing((Match m) -> m.scheduledAt != null ? m.scheduledAt : m.createdAt)).toList();
+        int[] sc = new int[7];
+        Map<String, Integer> outs = new LinkedHashMap<>();
+        List<FormEntry> form = new ArrayList<>();
+        if (ms.isEmpty()) return new Profile(form, new Scoring(0, 0, 0, 0, 0, 0, 0), outs);
+        Map<UUID, Match> byId = ms.stream().collect(Collectors.toMap(m -> m.id, m -> m));
+        List<Innings> inns = inningsRepo.findByMatchIdInOrderByInningsNo(byId.keySet());
+        Map<UUID, List<Ball>> ballMap = balls.findByInningsIdInOrderBySeq(inns.stream().map(i -> i.id).toList())
+                .stream().collect(Collectors.groupingBy(b -> b.inningsId));
+        Map<UUID, List<Innings>> innsByMatch = inns.stream().collect(Collectors.groupingBy(i -> i.matchId));
+        Set<UUID> teamIds = new HashSet<>();
+        ms.forEach(m -> { if (m.teamAId != null) teamIds.add(m.teamAId); if (m.teamBId != null) teamIds.add(m.teamBId); });
+        Map<UUID, String> teamNames = teams.findAllById(teamIds).stream().collect(Collectors.toMap(t -> t.id, t -> t.name));
+
+        for (Match m : ms) {
+            boolean batted = false, out = false; int runs = 0, faced = 0, bb = 0, conceded = 0, wk = 0;
+            String dismissal = null, opponent = null;
+            for (Innings i : innsByMatch.getOrDefault(m.id, List.of())) {
+                List<Ball> list = ballMap.getOrDefault(i.id, List.of());
+                InningsState st = MatchService.replay(m, i, list);
+                for (InningsState.Batter b : st.batters) {
+                    if (!b.playerId.equals(playerId)) continue;
+                    batted = true; runs += b.runs; faced += b.balls; out = b.out();
+                    opponent = teamNames.get(i.bowlingTeamId);
+                    if (b.out()) { dismissal = b.dismissal.name(); outs.merge(dismissal, 1, Integer::sum); }
+                }
+                for (InningsState.Bowler b : st.bowlers) {
+                    if (!b.playerId.equals(playerId)) continue;
+                    bb += b.balls; conceded += b.runs; wk += b.wickets;
+                    if (opponent == null) opponent = teamNames.get(i.battingTeamId);
+                }
+                for (Ball x : list) {
+                    if (!playerId.equals(x.strikerId)) continue;
+                    if (x.extraType != com.wicketly.engine.ExtraType.NONE && x.extraType != com.wicketly.engine.ExtraType.NO_BALL) continue;
+                    if (x.dismissal != null && !x.dismissal.offDelivery()) continue; // retired or timed out: not a ball faced
+                    switch (x.runsBat) {
+                        case 0 -> { if (x.extraType == com.wicketly.engine.ExtraType.NONE) sc[0]++; }
+                        case 1 -> sc[1]++; case 2 -> sc[2]++; case 3 -> sc[3]++; case 4 -> sc[4]++; case 6 -> sc[5]++;
+                        default -> sc[6]++;
+                    }
+                }
+            }
+            if (!batted && bb == 0) continue;
+            form.add(new FormEntry(m.id, m.scheduledAt != null ? m.scheduledAt : m.createdAt, opponent, batted, runs, faced, out,
+                    dismissal, bb, conceded, wk, m.ballsPerOver));
+        }
+        return new Profile(form, new Scoring(sc[0], sc[1], sc[2], sc[3], sc[4], sc[5], sc[6]), outs);
     }
 
     public Map<UUID, Agg> aggregate(Collection<Match> ms) {

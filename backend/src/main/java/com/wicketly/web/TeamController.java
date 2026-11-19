@@ -21,7 +21,8 @@ public class TeamController {
     public record PlayerReq(UUID id, UUID playerId, String name, String battingHand, String bowlingStyle, String playerRole) {}
     public record Record(int played, int won, int lost, int tied, int noResult) {}
     public record TeamView(Team team, boolean canEdit, List<Player> players, Record record, List<MatchSummary> matches) {}
-    public record PlayerView(Player player, List<TeamRef> teams, StatsService.Agg stats, List<MatchSummary> matches, boolean canEdit) {}
+    public record PlayerView(Player player, List<TeamRef> teams, StatsService.Agg stats, List<MatchSummary> matches, boolean canEdit,
+                             StatsService.Profile profile, boolean canReport) {}
 
     private final TeamRepo teams;
     private final PlayerRepo players;
@@ -133,7 +134,8 @@ public class TeamController {
         List<Team> ts = teams.findAllById(teamPlayers.findByPlayerId(id).stream().map(tp -> tp.teamId).toList());
         Me me = Me.of(jwt);
         return new PlayerView(p, ts.stream().map(MatchService::ref).toList(), stats.career(id),
-                matchService.summaries(stats.matchesOf(id)), access.canEdit(me, p));
+                matchService.summaries(stats.matchesOf(id)), access.canEdit(me, p),
+                stats.profile(id), Access.sameOrg(me, p.ownerId));
     }
 
     @PutMapping("/players/{id}")

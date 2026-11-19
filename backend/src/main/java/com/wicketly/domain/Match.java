@@ -29,6 +29,12 @@ public class Match {
     public UUID winnerId;
     public String resultText, overrideReason;
     public UUID playerOfMatchId;
+    @Column(name = "team_a_captain_id") public UUID teamACaptainId;
+    @Column(name = "team_a_vice_captain_id") public UUID teamAViceCaptainId;
+    @Column(name = "team_a_keeper_id") public UUID teamAKeeperId;
+    @Column(name = "team_b_captain_id") public UUID teamBCaptainId;
+    @Column(name = "team_b_vice_captain_id") public UUID teamBViceCaptainId;
+    @Column(name = "team_b_keeper_id") public UUID teamBKeeperId;
     public boolean listed = true, practice;
     public UUID createdBy, ownerId;
     public String lockDevice;

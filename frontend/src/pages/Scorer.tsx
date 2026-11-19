@@ -6,9 +6,10 @@ import { useAuth } from '../auth'
 import { DISMISSAL_LABEL, allowedDismissals } from '../engine'
 import { ScorerStore } from '../scorer/store'
 import type { Ball, Dismissal, ExtraType, InningsView, MatchView, PlayerRef, TeamFull } from '../types'
-import { BallChip, Field, Modal } from '../ui'
+import { BallChip, Field, Modal, roleTags } from '../ui'
 import { chase } from './Overview'
 import toast from 'react-hot-toast'
+import { confirm } from '../confirm'
 
 type Mods = { wide: boolean; noBall: boolean; bye: boolean; legBye: boolean }
 const NO_MODS: Mods = { wide: false, noBall: false, bye: false, legBye: false }
@@ -73,7 +74,7 @@ export default function Scorer() {
 
       {locked && <div className="note info row between wrap"><span>Another device is scoring this match. This screen is read-only.</span><button className="btn sm primary" onClick={() => store.claim(true)}>Take over scoring</button></div>}
 
-      {m.state === 'SCHEDULED' && <Toss doc={doc} onStart={(w, d) => store.start(w, d)} disabled={locked} />}
+      {m.state === 'SCHEDULED' && <PreMatch store={store} doc={doc} disabled={locked} />}
 
       {inn && st && (
         <>
@@ -165,7 +166,7 @@ export default function Scorer() {
             {!inn.closed && <button onClick={() => setSheet('bowler')}>Change bowler mid-over</button>}
             <button onClick={() => setSheet('edit')}>Edit an earlier ball</button>
             {!inn.closed && <button onClick={() => setSheet('revise')}>Reduce overs / revise target</button>}
-            {!inn.closed && <button onClick={() => { if (window.confirm('End this innings now?')) { store.endInnings(); setSheet(null) } }}>End innings</button>}
+            {!inn.closed && <button onClick={async () => { if (await confirm({ title: 'End this innings now?', message: 'Use this when the innings closes early, for example a declaration or rain.', yes: 'Yes, end it' })) { store.endInnings(); setSheet(null) } }}>End innings</button>}
             <button onClick={() => setSheet('result')}>Abandon match or set the result</button>
           </div>
         </Modal>
@@ -184,7 +185,82 @@ function SyncPill({ store }: { store: ScorerStore }) {
   return <span className="pill good sync"><Wifi size={12} />Synced</span>
 }
 
-function Toss({ doc, onStart, disabled }: { doc: MatchView; onStart: (winner: string, decision: 'BAT' | 'BOWL') => void; disabled: boolean }) {
+/** Before the toss: both squads must be complete, with a captain and a wicket-keeper picked for each side. */
+function PreMatch({ store, doc, disabled }: { store: ScorerStore; doc: MatchView; disabled: boolean }) {
+  const teams = [doc.teamA, doc.teamB].filter((t): t is TeamFull => t !== null)
+  if (teams.length < 2) return <div className="card muted">Both teams must be known before this match can start.</div>
+  const need = doc.rules.playersPerSide
+  const missing: string[] = []
+  for (const t of teams) {
+    const r = doc.roles?.find((x) => x.teamId === t.id)
+    if (t.players.length < need) missing.push(`${t.name}: add ${need - t.players.length} more player${need - t.players.length === 1 ? '' : 's'}`)
+    if (!r?.captainId) missing.push(`${t.name}: choose a captain`)
+    if (!r?.keeperId) missing.push(`${t.name}: choose a wicket-keeper`)
+  }
+  return (
+    <>
+      {teams.map((t) => <SquadSetup key={t.id} store={store} team={t} need={need} disabled={disabled} />)}
+      <Toss doc={doc} onStart={(w, d) => store.start(w, d)} disabled={disabled} missing={missing} />
+    </>
+  )
+}
+
+function SquadSetup({ store, team, need, disabled }: { store: ScorerStore; team: TeamFull; need: number; disabled: boolean }) {
+  const admin = useAuth().user?.admin ?? false
+  const [names, setNames] = useState('')
+  const r = store.doc!.roles?.find((x) => x.teamId === team.id) ?? { captainId: null, viceCaptainId: null, keeperId: null }
+  const set = (k: 'captainId' | 'viceCaptainId' | 'keeperId', id: string) => {
+    const next = { captainId: r.captainId, viceCaptainId: r.viceCaptainId, keeperId: r.keeperId, [k]: r[k] === id && k === 'viceCaptainId' ? null : id }
+    if (k === 'captainId' && next.viceCaptainId === id) next.viceCaptainId = null
+    if (k === 'viceCaptainId' && next.captainId === id) next.captainId = null
+    store.setRoles(team.id, next)
+  }
+  const add = (e: FormEvent) => {
+    e.preventDefault()
+    const list = names.split(/[,\n]/).map((n) => n.trim()).filter(Boolean)
+    const have = new Set(team.players.map((p) => p.name.toLowerCase()))
+    const fresh = list.filter((n) => !have.has(n.toLowerCase()))
+    fresh.forEach((n) => store.addPlayer(team.id, n))
+    if (fresh.length < list.length) toast(`${list.length - fresh.length} already in the squad, skipped`)
+    setNames('')
+  }
+  const short = team.players.length < need
+  return (
+    <div className="card col" style={{ gap: 12 }}>
+      <div className="row between">
+        <h2>{team.name}</h2>
+        <span className={`pill ${short ? 'warn' : 'good'}`}>{team.players.length} / {need} players</span>
+      </div>
+      {team.players.length > 0 && (
+        <div className="squad-setup">
+          <div className="small dim squad-head"><span>Player</span><span>C</span><span>VC</span><span>WK</span></div>
+          {team.players.map((p) => (
+            <div key={p.id} className="squad-row">
+              <span className="truncate">{p.name}</span>
+              {(['captainId', 'viceCaptainId', 'keeperId'] as const).map((k) => (
+                <button key={k} type="button" disabled={disabled} className={`role-dot ${r[k] === p.id ? 'on' : ''}`}
+                  aria-label={`${k === 'captainId' ? 'Captain' : k === 'viceCaptainId' ? 'Vice-captain' : 'Wicket-keeper'}: ${p.name}`}
+                  aria-pressed={r[k] === p.id} onClick={() => set(k, p.id)}>{k === 'captainId' ? 'C' : k === 'viceCaptainId' ? 'VC' : 'WK'}</button>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+      {!team.players.length && <div className="muted small">No players in this team yet.</div>}
+      {admin ? (
+        <form className="col" style={{ gap: 6 }} onSubmit={add}>
+          <div className="row">
+            <input className="input" placeholder="Player names, separated by commas" value={names} onChange={(e) => setNames(e.target.value)} aria-label={`Add players to ${team.name}`} disabled={disabled} />
+            <button className="btn" disabled={disabled || !names.trim()}>Add</button>
+          </div>
+          <div className="small muted">Players are saved to the team, so they are already there next match. Vice-captain is optional.</div>
+        </form>
+      ) : short ? <div className="small muted">Players missing? Ask your admin to add them to {team.name}.</div> : null}
+    </div>
+  )
+}
+
+function Toss({ doc, onStart, disabled, missing }: { doc: MatchView; onStart: (winner: string, decision: 'BAT' | 'BOWL') => void; disabled: boolean; missing: string[] }) {
   const [winner, setWinner] = useState<string | null>(null)
   const [decision, setDecision] = useState<'BAT' | 'BOWL' | null>(null)
   const [flip, setFlip] = useState<string | null>(null)
@@ -201,7 +277,8 @@ function Toss({ doc, onStart, disabled }: { doc: MatchView; onStart: (winner: st
       <Field label="They chose to"><div className="chips">
         <button type="button" className={`chip ${decision === 'BAT' ? 'on' : ''}`} onClick={() => setDecision('BAT')}>Bat</button>
         <button type="button" className={`chip ${decision === 'BOWL' ? 'on' : ''}`} onClick={() => setDecision('BOWL')}>Bowl</button></div></Field>
-      <button className="btn primary block" style={{ minHeight: 52 }} disabled={!winner || !decision || disabled} onClick={() => onStart(winner!, decision!)}>Start match</button>
+      {missing.length > 0 && <div className="small muted">Before the match can start:<ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{missing.map((x) => <li key={x}>{x}</li>)}</ul></div>}
+      <button className="btn primary block" style={{ minHeight: 52 }} disabled={!winner || !decision || disabled || missing.length > 0} onClick={() => onStart(winner!, decision!)}>Start match</button>
     </div>
   )
 }
@@ -244,7 +321,7 @@ function PlayerPicker({ role, store, inn, onDone, inline }: { role: 'striker' | 
       <div><h2>{title}</h2><div className="small muted">{team.name}</div></div>
       <div className="pick-list">
         {team.players.map((p) => { const why = blocked(p); return (
-          <button key={p.id} disabled={why !== null} onClick={() => pick(p.id)}><span>{p.name}</span><span className="muted small num">{why ?? figures(p)}</span></button>) })}
+          <button key={p.id} disabled={why !== null} onClick={() => pick(p.id)}><span>{p.name}{roleTags(doc, p.id)}</span><span className="muted small num">{why ?? figures(p)}</span></button>) })}
         {!team.players.length && <div className="muted small">{admin ? 'No players yet. Add the first one below.' : 'No players in this team yet.'}</div>}
       </div>
       {admin ? (

@@ -6,6 +6,7 @@ import { Badge, Field, MatchRow, ShareButton, Status, fmtDate, scoreOf, sourceLa
 import { Standings } from './Overview'
 import { STRUCTURES, statusPill } from './Tournaments'
 import toast from 'react-hot-toast'
+import { confirm } from '../confirm'
 
 export default function TournamentPage() {
   const { id } = useParams()
@@ -259,7 +260,7 @@ function Organiser({ data, reload }: { data: TournamentView; reload: () => Promi
                   <option value="">No group</option>{['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'].map((g) => <option key={g} value={g}>Group {g}</option>)}
                 </select>
               )}
-              <button className="btn sm danger" onClick={() => run(() => api('DELETE', `${base}/teams/${e.team.id}`), 'Team removed')}>Remove</button>
+              <button className="btn sm danger" onClick={async () => { if (await confirm({ title: `Remove ${e.team.name}?`, message: 'The team leaves this tournament. The team itself and its players are kept.', yes: 'Yes, remove', danger: true })) void run(() => api('DELETE', `${base}/teams/${e.team.id}`), 'Team removed') }}>Remove</button>
             </span>
           </div>
         ))}
@@ -304,8 +305,8 @@ function Organiser({ data, reload }: { data: TournamentView; reload: () => Promi
       <div className="card col">
         <h2>3 · Fixtures</h2>
         <div className="muted small">Generates the full schedule: every team plays each other in its group, then knockouts are filled from the final group positions and earlier winners. Edit any fixture's date, ground or scorers from its match page.</div>
-        <button className="btn primary" style={{ alignSelf: 'flex-start' }} disabled={started} onClick={() => {
-          if (!data.fixtures.length || window.confirm('Replace the existing fixtures with a fresh schedule?')) void run(() => api('POST', `${base}/fixtures`), 'Fixtures generated')
+        <button className="btn primary" style={{ alignSelf: 'flex-start' }} disabled={started} onClick={async () => {
+          if (!data.fixtures.length || await confirm({ title: 'Replace the fixtures?', message: 'The current schedule is thrown away and a fresh one is generated.', yes: 'Yes, replace', danger: true })) void run(() => api('POST', `${base}/fixtures`), 'Fixtures generated')
         }}>{data.fixtures.length ? 'Regenerate fixtures' : 'Generate fixtures'}</button>
         {started && <div className="muted small">Matches have started, so the schedule can no longer be regenerated.</div>}
       </div>
@@ -324,8 +325,8 @@ function Organiser({ data, reload }: { data: TournamentView; reload: () => Promi
         </div>
       )}
 
-      <button className="btn danger" style={{ alignSelf: 'flex-start' }} onClick={() => {
-        if (window.confirm('Delete this tournament with all its fixtures and scores? This cannot be undone.')) void run(async () => { await api('DELETE', base); nav('/tournaments') }, 'Deleted')
+      <button className="btn danger" style={{ alignSelf: 'flex-start' }} onClick={async () => {
+        if (await confirm({ title: `Delete ${t.name}?`, message: 'Every fixture, score and table in this tournament is deleted. This cannot be undone.', yes: 'Yes, delete', danger: true })) void run(async () => { await api('DELETE', base); nav('/tournaments') }, 'Deleted')
       }}>Delete tournament</button>
     </div>
   )

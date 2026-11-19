@@ -103,7 +103,32 @@ public class MatchService {
                     i.strikerId, i.nonStrikerId, i.bowlerId, st, raw));
         }
         return new MatchView(summary, rules(m, null), a, b, m.tossWinnerId, m.tossDecision, m.listed, m.practice,
-                m.overrideReason, m.playerOfMatchId, access.canScore(me, m), access.canManage(me, m), views);
+                m.overrideReason, m.playerOfMatchId, access.canScore(me, m), access.canManage(me, m), views, roles(m));
+    }
+
+    private static List<TeamRoles> roles(Match m) {
+        List<TeamRoles> out = new ArrayList<>();
+        if (m.teamAId != null) out.add(new TeamRoles(m.teamAId, m.teamACaptainId, m.teamAViceCaptainId, m.teamAKeeperId));
+        if (m.teamBId != null) out.add(new TeamRoles(m.teamBId, m.teamBCaptainId, m.teamBViceCaptainId, m.teamBKeeperId));
+        return out;
+    }
+
+    public record RolesReq(UUID teamId, UUID captainId, UUID viceCaptainId, UUID keeperId) {}
+
+    /** Sets one side's captain, vice-captain (optional) and wicket-keeper. Anyone who can score the match may do it. */
+    public void setRoles(UUID id, RolesReq r, Me me) {
+        Match m = get(id);
+        if (!access.canScore(me, m)) throw Api.forbidden();
+        boolean a = r.teamId() != null && r.teamId().equals(m.teamAId), b = r.teamId() != null && r.teamId().equals(m.teamBId);
+        if (!a && !b) throw Api.bad("That team is not playing in this match");
+        Set<UUID> squad = new HashSet<>();
+        players.findByTeam(r.teamId()).forEach(p -> squad.add(p.id));
+        for (UUID p : java.util.Arrays.asList(r.captainId(), r.viceCaptainId(), r.keeperId()))
+            if (p != null && !squad.contains(p)) throw Api.bad("Captain, vice-captain and wicket-keeper must be in the team");
+        if (r.captainId() != null && r.captainId().equals(r.viceCaptainId())) throw Api.bad("The captain cannot also be the vice-captain");
+        if (a) { m.teamACaptainId = r.captainId(); m.teamAViceCaptainId = r.viceCaptainId(); m.teamAKeeperId = r.keeperId(); }
+        else { m.teamBCaptainId = r.captainId(); m.teamBViceCaptainId = r.viceCaptainId(); m.teamBKeeperId = r.keeperId(); }
+        live.publish(m.id);
     }
 
     /** Sets (or clears, with null) the player of the match. The player must be in one of the two squads. */
