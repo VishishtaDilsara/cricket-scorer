@@ -4,7 +4,8 @@ import { Plus, Trophy } from 'lucide-react'
 import { api, errorText, useApi } from '../api'
 import { useAuth } from '../auth'
 import type { TournamentCard } from '../types'
-import { Field, Modal, Status, fmtDate } from '../ui'
+import { Field, Modal, SignInPrompt, Status, fmtDate } from '../ui'
+import toast from 'react-hot-toast'
 
 export const STRUCTURES: Record<string, string> = { LEAGUE: 'Round-robin league', GROUPS_KNOCKOUT: 'Groups then knockouts', KNOCKOUT: 'Straight knockout' }
 
@@ -14,29 +15,29 @@ export function statusPill(status: string) {
 }
 
 export default function Tournaments() {
-  const { user } = useAuth()
+  const { user, ready } = useAuth()
   const nav = useNavigate()
-  const { data, error, loading } = useApi<TournamentCard[]>('/tournaments')
+  const { data, error, loading } = useApi<TournamentCard[]>(user ? '/tournaments' : null)
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [structure, setStructure] = useState('GROUPS_KNOCKOUT')
   const [overs, setOvers] = useState(20)
   const [startDate, setStart] = useState('')
   const [venue, setVenue] = useState('')
-  const [err, setErr] = useState<string | null>(null)
   const create = async (e: FormEvent) => {
     e.preventDefault()
     try {
       const { id } = await api<{ id: string }>('POST', '/tournaments', { name, structure, overs, startDate: startDate || null, venue: venue || null })
       nav(`/tournaments/${id}?tab=manage`)
-    } catch (x) { setErr(errorText(x)) }
+    } catch (x) { toast.error(errorText(x)) }
   }
   return (
     <div className="page">
       <div className="page-head"><h1>Tournaments</h1>
-        <button className="btn primary" onClick={() => (user ? setOpen(true) : nav('/login?next=/tournaments'))}><Plus size={16} />New tournament</button></div>
+        {user?.admin && <button className="btn primary" onClick={() => setOpen(true)}><Plus size={16} />New tournament</button>}</div>
+      {ready && !user && <SignInPrompt what="tournaments" />}
       <Status loading={loading} error={error} />
-      {data && !data.length && <div className="card empty">No tournaments yet. Create one to get fixtures, a points table with net run rate, and a knockout bracket.</div>}
+      {data && !data.length && <div className="card empty">{user?.admin ? 'No tournaments yet. Create one to get fixtures, a points table with net run rate, and a knockout bracket.' : 'Your admin has not created any tournaments yet.'}</div>}
       <div className="grid thirds">
         {data?.map((t) => (
           <Link key={t.id} to={`/tournaments/${t.id}`} className="card col">
@@ -57,7 +58,6 @@ export default function Tournaments() {
               <Field label="Start date"><input className="input" type="date" value={startDate} onChange={(e) => setStart(e.target.value)} /></Field>
             </div>
             <Field label="Venue"><input className="input" value={venue} onChange={(e) => setVenue(e.target.value)} /></Field>
-            {err && <div className="note error">{err}</div>}
             <button className="btn primary">Create tournament</button>
           </form>
         </Modal>

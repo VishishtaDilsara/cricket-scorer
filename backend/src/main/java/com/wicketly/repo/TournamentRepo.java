@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
 public interface TournamentRepo extends JpaRepository<Tournament, UUID> {
-    List<Tournament> findTop50ByOrderByCreatedAtDesc();
-    List<Tournament> findTop20ByNameContainingIgnoreCaseOrderByName(String q);
+    List<Tournament> findTop50ByOwnerIdOrderByCreatedAtDesc(UUID ownerId);
+    List<Tournament> findTop20ByOwnerIdAndNameContainingIgnoreCaseOrderByName(UUID ownerId, String q);
+    long countByOwnerId(UUID ownerId);
 }

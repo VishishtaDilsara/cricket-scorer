@@ -15,7 +15,15 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import com.wicketly.repo.UserRepo;
+import java.util.UUID;
+import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
+import org.springframework.security.oauth2.core.OAuth2Error;
+import org.springframework.security.oauth2.core.OAuth2TokenValidator;
+import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
@@ -28,8 +36,10 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 public class SecurityConfig {
     private final SecretKey key;
     private final List<String> origins;
+    private final UserRepo users;
 
-    public SecurityConfig(@Value("${app.jwt-secret}") String secret, @Value("${app.cors-origins}") List<String> origins) {
+    public SecurityConfig(@Value("${app.jwt-secret}") String secret, @Value("${app.cors-origins}") List<String> origins, UserRepo users) {
+        this.users = users;
         if (secret.getBytes(StandardCharsets.UTF_8).length < 32) throw new IllegalStateException("JWT_SECRET must be at least 32 characters");
         this.key = new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
         this.origins = origins;
@@ -52,7 +62,19 @@ public class SecurityConfig {
         return http.build();
     }
 
-    @Bean JwtDecoder jwtDecoder() { return NimbusJwtDecoder.withSecretKey(key).macAlgorithm(MacAlgorithm.HS256).build(); }
+    /** Besides the signature and expiry, the account must still exist, so a deleted scorer is signed out at once. */
+    @Bean
+    JwtDecoder jwtDecoder() {
+        NimbusJwtDecoder d = NimbusJwtDecoder.withSecretKey(key).macAlgorithm(MacAlgorithm.HS256).build();
+        OAuth2TokenValidator<Jwt> exists = jwt -> {
+            try {
+                if (users.existsById(UUID.fromString(jwt.getSubject()))) return OAuth2TokenValidatorResult.success();
+            } catch (IllegalArgumentException ignored) { /* malformed subject */ }
+            return OAuth2TokenValidatorResult.failure(new OAuth2Error("invalid_token", "Account no longer exists", null));
+        };
+        d.setJwtValidator(new DelegatingOAuth2TokenValidator<>(JwtValidators.createDefault(), exists));
+        return d;
+    }
     @Bean JwtEncoder jwtEncoder() { return new NimbusJwtEncoder(new ImmutableSecret<>(key)); }
     @Bean PasswordEncoder passwordEncoder() { return new BCryptPasswordEncoder(); }
 

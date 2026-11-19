@@ -114,10 +114,19 @@ export function Modal({ title, onClose, children }: { title: string; onClose?: (
   )
 }
 
-export function ShareButton({ title }: { title: string }) {
+/** Lists are private to each admin's space, so visitors who are not signed in see this instead. */
+export function SignInPrompt({ what }: { what: string }) {
+  return (
+    <div className="card empty">
+      Sign in to see your {what}. <Link className="brand" to={`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`}>Sign in</Link>
+      <div className="small muted" style={{ marginTop: 6 }}>Got a match link from someone? Open it directly, no account needed.</div>
+    </div>
+  )
+}
+
+export function ShareButton({ title, url = window.location.href }: { title: string; url?: string }) {
   const [done, setDone] = useState(false)
   const share = async () => {
-    const url = window.location.href
     try {
       if (navigator.share) await navigator.share({ title, url })
       else { await navigator.clipboard.writeText(url); setDone(true); setTimeout(() => setDone(false), 2000) }

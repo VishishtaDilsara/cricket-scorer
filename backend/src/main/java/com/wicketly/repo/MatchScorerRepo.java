@@ -12,4 +12,5 @@ import org.springframework.data.jpa.repository.Query;
 public interface MatchScorerRepo extends JpaRepository<MatchScorer, UUID> {
     boolean existsByMatchIdAndUserId(UUID matchId, UUID userId);
     List<MatchScorer> findByMatchId(UUID matchId);
+    void deleteByUserId(UUID userId);
 }

@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, errorText, useApi } from '../api'
-import type { Board, MatchSummary, TournamentView } from '../types'
+import type { Board, MatchSummary, TeamRef, TournamentView } from '../types'
 import { Badge, Field, MatchRow, ShareButton, Status, fmtDate, scoreOf, sourceLabel } from '../ui'
 import { Standings } from './Overview'
 import { STRUCTURES, statusPill } from './Tournaments'
+import toast from 'react-hot-toast'
 
 export default function TournamentPage() {
   const { id } = useParams()
@@ -28,7 +29,7 @@ export default function TournamentPage() {
       <div className="tabs">{tabs.map(([k, label]) => <button key={k} className={`tab ${tab === k ? 'active' : ''}`} onClick={() => setParams({ tab: k })}>{label}</button>)}</div>
       {tab === 'fixtures' && <Fixtures data={data} />}
       {tab === 'table' && <Table data={data} />}
-      {tab === 'bracket' && <Bracket matches={knockouts} />}
+      {tab === 'bracket' && <Bracket matches={data.fixtures} />}
       {tab === 'teams' && <TeamsTab data={data} />}
       {tab === 'leaders' && <Leaders id={t.id} />}
       {tab === 'manage' && data.canManage && <Organiser data={data} reload={reload} />}
@@ -61,27 +62,107 @@ function Table({ data }: { data: TournamentView }) {
   )
 }
 
+type Edge = { d: string; filled: boolean }
+
 function Bracket({ matches }: { matches: MatchSummary[] }) {
-  // A round is every knockout match sharing a code prefix: QF1..QF4, SF1..SF2, F.
+  // The whole road to the final, left to right: group or league matches first (one block per group),
+  // then each knockout round. A knockout round is every match sharing a code prefix: QF1..QF4, SF1..SF2, F.
+  const groups = new Map<string, MatchSummary[]>()
+  for (const m of matches.filter((f) => f.stage !== 'KNOCKOUT')) {
+    const key = m.groupName ?? ''
+    groups.set(key, [...(groups.get(key) ?? []), m])
+  }
+  const knockouts = matches.filter((f) => f.stage === 'KNOCKOUT')
   const rounds = new Map<string, MatchSummary[]>()
-  for (const m of matches) {
+  for (const m of knockouts) {
     const key = (m.code ?? '').replace(/-?\d+$/, '')
     rounds.set(key, [...(rounds.get(key) ?? []), m])
   }
+
+  // Arrows: each knockout slot gets a line from where its team comes from (a group, or an earlier match's winner).
+  const wrap = useRef<HTMLDivElement>(null)
+  const nodes = useRef(new Map<string, HTMLElement>())
+  const [edges, setEdges] = useState<Edge[]>([])
+  const [size, setSize] = useState({ w: 0, h: 0 })
+  useLayoutEffect(() => {
+    const el = wrap.current
+    if (!el) return
+    const draw = () => {
+      const base = el.getBoundingClientRect()
+      const out: Edge[] = []
+      for (const m of knockouts) {
+        const to = m.code ? nodes.current.get(`M:${m.code}`) : undefined
+        if (!to) continue
+        const t = to.getBoundingClientRect()
+        ;([[m.sourceA, m.teamA, 0.25], [m.sourceB, m.teamB, 0.75]] as const).forEach(([src, team, at]) => {
+          if (!src) return
+          const key = src.startsWith('W:') ? `M:${src.slice(2)}` : src.startsWith('G:') ? `G:${src.split(':')[1]}` : null
+          const from = key ? nodes.current.get(key) : undefined
+          if (!from) return
+          const f = from.getBoundingClientRect()
+          const x1 = f.right - base.left, y1 = f.top + f.height / 2 - base.top
+          const x2 = t.left - base.left - 2, y2 = t.top + t.height * at - base.top
+          const mx = x1 + (x2 - x1) / 2
+          out.push({ d: `M${x1},${y1} H${mx} V${y2} H${x2}`, filled: !!team })
+        })
+      }
+      setEdges(out)
+      setSize({ w: el.scrollWidth, h: el.scrollHeight })
+    }
+    draw()
+    const ro = new ResizeObserver(draw)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [matches]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const keep = (key: string) => (n: HTMLElement | null) => { if (n) nodes.current.set(key, n); else nodes.current.delete(key) }
   const side = (m: MatchSummary, team: MatchSummary['teamA'], source: string | null) => (
     <div className={team && m.winnerId === team.id ? 'won' : ''}>
       <span className={`row truncate ${team ? '' : 'tbd'}`}>{team && <Badge team={team} />}{team ? team.name : sourceLabel(source)}</span>
       <span className="num">{scoreOf(m, team?.id).split(' ')[0]}</span>
     </div>
   )
+  const tie = (m: MatchSummary) => (
+    <Link key={m.id} ref={m.stage === 'KNOCKOUT' && m.code ? keep(`M:${m.code}`) : undefined} to={`/matches/${m.id}`} className="tie">
+      {side(m, m.teamA, m.sourceA)}{side(m, m.teamB, m.sourceB)}
+    </Link>
+  )
   return (
     <div className="bracket">
-      {[...rounds.values()].map((list) => (
-        <div key={list[0].id} className="round">
-          <div className="small dim" style={{ fontWeight: 800, textTransform: 'uppercase' }}>{(list[0].label ?? '').replace(/ \d+$/, '')}</div>
-          {list.map((m) => <Link key={m.id} to={`/matches/${m.id}`} className="tie">{side(m, m.teamA, m.sourceA)}{side(m, m.teamB, m.sourceB)}</Link>)}
-        </div>
-      ))}
+      <div className="bracket-inner" ref={wrap}>
+        <svg className="bracket-lines" width={size.w} height={size.h} aria-hidden="true">
+          <defs>
+            {(['on', 'off'] as const).map((k) => (
+              <marker key={k} id={`arrow-${k}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                <path d="M0,0 L10,5 L0,10 z" style={{ fill: k === 'on' ? 'var(--brand)' : 'var(--dim)' }} />
+              </marker>
+            ))}
+          </defs>
+          {edges.map((e, i) => (
+            <path key={i} d={e.d} fill="none" strokeWidth={1.5} markerEnd={`url(#arrow-${e.filled ? 'on' : 'off'})`}
+              style={{ stroke: e.filled ? 'var(--brand)' : 'var(--dim)', opacity: e.filled ? 0.9 : 0.55 }} />
+          ))}
+        </svg>
+        {groups.size > 0 && (
+          <div className="round group-stage">
+            <div className="round-head">{groups.size > 1 ? 'Group stage' : 'League stage'}</div>
+            <div className="round-body">
+              {[...groups.entries()].map(([g, list]) => (
+                <div key={g} ref={keep(`G:${g}`)} className="group-block">
+                  {groups.size > 1 && <div className="small muted" style={{ fontWeight: 700 }}>Group {g}</div>}
+                  {list.map(tie)}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {[...rounds.values()].map((list) => (
+          <div key={list[0].id} className="round">
+            <div className="round-head">{(list[0].label ?? '').replace(/ \d+$/, '')}</div>
+            <div className="round-body">{list.map(tie)}</div>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -123,9 +204,13 @@ function Leaders({ id }: { id: string }) {
 function Organiser({ data, reload }: { data: TournamentView; reload: () => Promise<void> }) {
   const nav = useNavigate()
   const t = data.tournament
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [form, setForm] = useState({ ...t })
   const [teamName, setTeamName] = useState('')
+  const { data: allTeams, reload: reloadTeams } = useApi<TeamRef[]>('/teams')
+  const [picked, setPicked] = useState<string[]>([])
+  const inTournament = new Set(data.teams.map((e) => e.team.id))
+  const available = (allTeams ?? []).filter((x) => !inTournament.has(x.id)).sort((a, b) => a.name.localeCompare(b.name))
+  const toggle = (tid: string) => setPicked((p) => (p.includes(tid) ? p.filter((x) => x !== tid) : [...p, tid]))
   const [groups, setGroups] = useState(2)
   const [adjTeam, setAdjTeam] = useState(data.teams[0]?.team.id ?? '')
   const [adjPoints, setAdjPoints] = useState(-1)
@@ -133,7 +218,7 @@ function Organiser({ data, reload }: { data: TournamentView; reload: () => Promi
   const started = data.fixtures.some((f) => f.state !== 'SCHEDULED')
 
   const run = async (fn: () => Promise<unknown>, ok: string) => {
-    try { await fn(); await reload(); setMsg({ ok: true, text: ok }) } catch (e) { setMsg({ ok: false, text: errorText(e) }) }
+    try { await fn(); await reload(); toast.success(ok) } catch (e) { toast.error(errorText(e)) }
   }
   const base = `/tournaments/${t.id}`
   const num = (k: keyof typeof form) => (
@@ -141,7 +226,6 @@ function Organiser({ data, reload }: { data: TournamentView; reload: () => Promi
   )
   return (
     <div className="col" style={{ gap: 14 }}>
-      {msg && <div className={`note ${msg.ok ? 'info' : 'error'}`}>{msg.text}</div>}
       <div className="card col">
         <h2>1 · Format and rules</h2>
         <div className="form-grid">
@@ -179,9 +263,34 @@ function Organiser({ data, reload }: { data: TournamentView; reload: () => Promi
             </span>
           </div>
         ))}
-        <form className="row" onSubmit={(e) => { e.preventDefault(); void run(async () => { await api('POST', `${base}/teams`, { name: teamName }); setTeamName('') }, 'Team added') }}>
-          <input className="input" placeholder="New team name" value={teamName} onChange={(e) => setTeamName(e.target.value)} required /><button className="btn">Add team</button>
-        </form>
+        {!data.teams.length && <div className="muted small">No teams in this tournament yet.</div>}
+        <div className="col" style={{ gap: 8, borderTop: '1px solid var(--line)', paddingTop: 12 }}>
+          <h3>Add your existing teams</h3>
+          {available.length > 0 ? (
+            <>
+              <div className="chips">
+                {available.map((x) => (
+                  <button key={x.id} type="button" className={`chip row ${picked.includes(x.id) ? 'on' : ''}`} aria-pressed={picked.includes(x.id)} onClick={() => toggle(x.id)}>
+                    <Badge team={x} />{x.name}
+                  </button>
+                ))}
+              </div>
+              <div className="row wrap">
+                <button className="btn" disabled={!picked.length}
+                  onClick={() => run(async () => { for (const tid of picked) await api('POST', `${base}/teams`, { teamId: tid }); setPicked([]) }, picked.length === 1 ? 'Team added' : `${picked.length} teams added`)}>
+                  Add {picked.length ? `${picked.length} selected` : 'selected'}
+                </button>
+                <button className="btn ghost sm" type="button" onClick={() => setPicked(picked.length === available.length ? [] : available.map((x) => x.id))}>
+                  {picked.length === available.length ? 'Clear' : 'Select all'}
+                </button>
+              </div>
+            </>
+          ) : <div className="muted small">{allTeams && allTeams.length ? 'All your teams are already in this tournament.' : 'You have no teams yet. Create one below.'}</div>}
+          <h3 style={{ marginTop: 6 }}>Or create a new team</h3>
+          <form className="row" onSubmit={(e) => { e.preventDefault(); void run(async () => { await api('POST', `${base}/teams`, { name: teamName }); setTeamName(''); await reloadTeams() }, 'Team created and added') }}>
+            <input className="input" placeholder="New team name" value={teamName} onChange={(e) => setTeamName(e.target.value)} required /><button className="btn">Create and add</button>
+          </form>
+        </div>
         {t.structure === 'GROUPS_KNOCKOUT' && (
           <div className="row wrap">
             <span className="muted small">Random draw into</span>

@@ -37,16 +37,22 @@ public class TeamController {
         this.matchService = matchService; this.stats = stats; this.access = access;
     }
 
+    /** Teams in the signed-in admin's space; empty for visitors who are not signed in. */
     @GetMapping("/teams")
-    List<TeamRef> list(@RequestParam(required = false) String q) {
-        List<Team> list = q == null || q.isBlank() ? teams.findTop50ByOrderByCreatedAtDesc() : teams.findTop20ByNameContainingIgnoreCaseOrderByName(q.trim());
+    List<TeamRef> list(@RequestParam(required = false) String q, @AuthenticationPrincipal Jwt jwt) {
+        UUID org = Me.orgOf(Me.of(jwt));
+        if (org == null) return List.of();
+        List<Team> list = q == null || q.isBlank() ? teams.findTop100ByOwnerIdOrderByCreatedAtDesc(org)
+                : teams.findTop20ByOwnerIdAndNameContainingIgnoreCaseOrderByName(org, q.trim());
         return list.stream().map(MatchService::ref).toList();
     }
 
     @PostMapping("/teams")
     Map<String, UUID> create(@RequestBody TeamReq r, @AuthenticationPrincipal Jwt jwt) {
+        Me me = Me.of(jwt);
+        access.requireAdmin(me);
         if (r.name() == null || r.name().isBlank()) throw Api.bad("Team name is required");
-        Team t = MatchService.newTeam(r.name(), Me.of(jwt).id());
+        Team t = MatchService.newTeam(r.name(), me.org());
         apply(t, r);
         return Map.of("id", teams.save(t).id);
     }
@@ -85,17 +91,17 @@ public class TeamController {
     /** Adds a player. Name-only is enough (FR-TEAM-03); a client-supplied id makes offline retries safe. */
     @PostMapping("/teams/{id}/players")
     Map<String, UUID> addPlayer(@PathVariable UUID id, @RequestBody PlayerReq r, @AuthenticationPrincipal Jwt jwt) {
-        editable(id, jwt);
+        Team team = editable(id, jwt);
         Player p;
-        if (r.playerId() != null) {
-            p = players.findById(r.playerId()).orElseThrow(() -> Api.notFound("Player"));
-        } else if (r.id() != null && players.existsById(r.id())) {
-            p = players.findById(r.id()).orElseThrow();
+        if (r.playerId() != null || (r.id() != null && players.existsById(r.id()))) {
+            p = players.findById(r.playerId() != null ? r.playerId() : r.id())
+                    .filter(x -> team.ownerId.equals(x.ownerId)).orElseThrow(() -> Api.notFound("Player"));
         } else {
             if (r.name() == null || r.name().isBlank()) throw Api.bad("Player name is required");
             p = new Player();
             if (r.id() != null) p.id = r.id();
             p.name = r.name().trim();
+            p.ownerId = team.ownerId;
             p.battingHand = r.battingHand(); p.bowlingStyle = r.bowlingStyle(); p.playerRole = r.playerRole();
             players.save(p);
         }
@@ -115,8 +121,10 @@ public class TeamController {
     }
 
     @GetMapping("/players")
-    List<Player> searchPlayers(@RequestParam String q) {
-        return players.findTop20ByNameContainingIgnoreCaseOrderByName(q.trim());
+    List<Player> searchPlayers(@RequestParam String q, @AuthenticationPrincipal Jwt jwt) {
+        UUID org = Me.orgOf(Me.of(jwt));
+        if (org == null) return List.of();
+        return players.findTop20ByOwnerIdAndNameContainingIgnoreCaseOrderByName(org, q.trim());
     }
 
     @GetMapping("/players/{id}")
@@ -125,15 +133,13 @@ public class TeamController {
         List<Team> ts = teams.findAllById(teamPlayers.findByPlayerId(id).stream().map(tp -> tp.teamId).toList());
         Me me = Me.of(jwt);
         return new PlayerView(p, ts.stream().map(MatchService::ref).toList(), stats.career(id),
-                matchService.summaries(stats.matchesOf(id)), ts.stream().anyMatch(t -> access.canEdit(me, t)));
+                matchService.summaries(stats.matchesOf(id)), access.canEdit(me, p));
     }
 
     @PutMapping("/players/{id}")
     void updatePlayer(@PathVariable UUID id, @RequestBody PlayerReq r, @AuthenticationPrincipal Jwt jwt) {
         Player p = players.findById(id).orElseThrow(() -> Api.notFound("Player"));
-        Me me = Me.of(jwt);
-        boolean ok = teams.findAllById(teamPlayers.findByPlayerId(id).stream().map(tp -> tp.teamId).toList()).stream().anyMatch(t -> access.canEdit(me, t));
-        if (!ok) throw Api.forbidden();
+        if (!access.canEdit(Me.of(jwt), p)) throw Api.forbidden();
         if (r.name() != null && !r.name().isBlank()) p.name = r.name().trim();
         if (r.battingHand() != null) p.battingHand = r.battingHand();
         if (r.bowlingStyle() != null) p.bowlingStyle = r.bowlingStyle();

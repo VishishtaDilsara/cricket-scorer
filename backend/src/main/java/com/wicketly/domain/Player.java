@@ -12,6 +12,6 @@ import java.util.UUID;
 public class Player {
     @Id public UUID id = UUID.randomUUID();
     public String name, battingHand, bowlingStyle, playerRole;
-    public UUID userId;
+    public UUID userId, ownerId;
     public Instant createdAt = Instant.now();
 }

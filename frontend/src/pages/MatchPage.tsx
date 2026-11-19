@@ -1,10 +1,11 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Award, Pencil, Settings } from 'lucide-react'
 import { api, errorText, streamUrl, useApi } from '../api'
 import type { InningsView, MatchView } from '../types'
 import { Badge, BallChip, Field, Modal, ShareButton, StatePill, Status, fmtDate, scoreOf } from '../ui'
 import { chase } from './Overview'
+import toast from 'react-hot-toast'
 
 export default function MatchPage() {
   const { id } = useParams()
@@ -272,41 +273,25 @@ function Overs({ inn, team }: { inn: InningsView; team: string }) {
 function Manage({ v, onClose }: { v: MatchView; onClose: () => void }) {
   const nav = useNavigate()
   const m = v.summary
-  const { data: scorers, reload } = useApi<{ userId: string; name: string; email: string }[]>(`/matches/${m.id}/scorers`)
-  const [email, setEmail] = useState('')
   const [when, setWhen] = useState(m.scheduledAt ? toLocal(m.scheduledAt) : '')
   const [ground, setGround] = useState(m.ground ?? '')
-  const [listed, setListed] = useState(v.listed)
   const [resultType, setResultType] = useState('WIN')
   const [winner, setWinner] = useState(m.teamA?.id ?? '')
   const [reason, setReason] = useState('')
   const [pom, setPom] = useState(v.playerOfMatchId ?? '')
-  const [msg, setMsg] = useState<string | null>(null)
   const run = async (fn: () => Promise<unknown>, ok: string) => {
-    try { await fn(); setMsg(ok) } catch (e) { setMsg(errorText(e)) }
+    try { await fn(); toast.success(ok) } catch (e) { toast.error(errorText(e)) }
   }
-  const addScorer = (e: FormEvent) => { e.preventDefault(); void run(async () => { await api('POST', `/matches/${m.id}/scorers`, { email }); setEmail(''); await reload() }, 'Scorer added') }
   return (
     <Modal title="Manage match" onClose={onClose}>
       <div className="col" style={{ gap: 16 }}>
-        {msg && <div className="note info">{msg}</div>}
-        <div className="col">
-          <h3>Scorers</h3>
-          {scorers?.map((s) => (
-            <div key={s.userId} className="row between"><span>{s.name} <span className="muted small">{s.email}</span></span>
-              <button className="btn sm danger" onClick={() => run(async () => { await api('DELETE', `/matches/${m.id}/scorers/${s.userId}`); await reload() }, 'Scorer removed')}>Remove</button></div>
-          ))}
-          {scorers && !scorers.length && <div className="muted small">Only you can score this match so far.</div>}
-          <form className="row" onSubmit={addScorer}><input className="input" type="email" placeholder="Scorer's account email" value={email} onChange={(e) => setEmail(e.target.value)} required /><button className="btn">Add</button></form>
-        </div>
         <div className="col">
           <h3>Schedule</h3>
           <div className="form-grid">
             <Field label="Date and time"><input className="input" type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} /></Field>
             <Field label="Ground"><input className="input" value={ground} onChange={(e) => setGround(e.target.value)} /></Field>
           </div>
-          <label className="check"><input type="checkbox" checked={listed} onChange={(e) => setListed(e.target.checked)} />Public (listed and searchable). Off = visible only by link.</label>
-          <button className="btn" onClick={() => run(() => api('PUT', `/matches/${m.id}`, { scheduledAt: when ? new Date(when).toISOString() : null, ground, listed }), 'Saved')}>Save schedule</button>
+          <button className="btn" onClick={() => run(() => api('PUT', `/matches/${m.id}`, { scheduledAt: when ? new Date(when).toISOString() : null, ground }), 'Saved')}>Save schedule</button>
         </div>
         <div className="col">
           <h3>Set or override the result</h3>

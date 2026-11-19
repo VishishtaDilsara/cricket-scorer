@@ -89,4 +89,5 @@ export type Overview = {
   featured: MatchView | null; live: MatchSummary[]; upcoming: MatchSummary[]; recent: MatchSummary[]
   tournament: TournamentView | null
 }
-export type User = { id: string; email: string; name: string; admin: boolean }
+export type User = { id: string; email: string; name: string; username: string | null; role: 'ADMIN' | 'SCORER'; admin: boolean }
+export type ScorerAccount = User

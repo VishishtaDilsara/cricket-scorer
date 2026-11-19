@@ -27,7 +27,9 @@ public class TournamentController {
     }
 
     @GetMapping
-    List<TournamentCard> list(@RequestParam(required = false) String q) { return service.list(q); }
+    List<TournamentCard> list(@RequestParam(required = false) String q, @AuthenticationPrincipal Jwt jwt) {
+        return service.list(q, Me.orgOf(Me.of(jwt)));
+    }
 
     @PostMapping
     Map<String, UUID> create(@RequestBody TournamentReq r, @AuthenticationPrincipal Jwt jwt) {

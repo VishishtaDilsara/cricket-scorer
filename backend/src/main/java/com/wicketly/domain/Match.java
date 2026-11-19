@@ -30,7 +30,7 @@ public class Match {
     public String resultText, overrideReason;
     public UUID playerOfMatchId;
     public boolean listed = true, practice;
-    public UUID createdBy;
+    public UUID createdBy, ownerId;
     public String lockDevice;
     public Instant completedAt;
     public Instant createdAt = Instant.now();

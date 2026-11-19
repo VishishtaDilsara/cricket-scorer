@@ -26,8 +26,9 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping("/api")
 public class AuthController {
     public record RegisterReq(String email, String name, String password) {}
+    /** {@code email} may also be a username. */
     public record LoginReq(String email, String password) {}
-    public record UserView(UUID id, String email, String name, boolean admin) {}
+    public record UserView(UUID id, String email, String name, String username, String role, boolean admin) {}
     public record Session(String token, UserView user) {}
 
     private final UserRepo users;
@@ -41,26 +42,39 @@ public class AuthController {
         this.users = users; this.encoder = encoder; this.jwt = jwt; this.matches = matches; this.teams = teams; this.matchService = matchService;
     }
 
+    /** Public sign-up always creates an admin with a separate space of its own. Scorers are created by an admin. */
     @PostMapping("/auth/register")
     Session register(@RequestBody RegisterReq r) {
-        String email = r.email() == null ? "" : r.email().trim().toLowerCase();
-        if (!email.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) throw Api.bad("Enter a valid email address");
+        String email = validEmail(r.email());
         if (r.name() == null || r.name().isBlank()) throw Api.bad("Enter your name");
-        if (r.password() == null || r.password().length() < 8) throw Api.bad("Password must be at least 8 characters");
+        validPassword(r.password());
         if (users.findByEmailIgnoreCase(email).isPresent()) throw Api.conflict("An account with that email already exists");
         User u = new User();
         u.email = email;
         u.name = r.name().trim();
         u.passwordHash = encoder.encode(r.password());
+        u.role = Me.ADMIN;
+        u.orgId = u.id;
         return session(users.save(u));
     }
 
     @PostMapping("/auth/login")
     Session login(@RequestBody LoginReq r) {
-        User u = users.findByEmailIgnoreCase(r.email() == null ? "" : r.email().trim()).orElse(null);
+        String id = r.email() == null ? "" : r.email().trim();
+        User u = (id.contains("@") ? users.findByEmailIgnoreCase(id) : users.findByUsername(id.toLowerCase())).orElse(null);
         if (u == null || r.password() == null || !encoder.matches(r.password(), u.passwordHash))
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Wrong email or password");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Wrong email, username or password");
         return session(u);
+    }
+
+    public static String validEmail(String raw) {
+        String email = raw == null ? "" : raw.trim().toLowerCase();
+        if (!email.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) throw Api.bad("Enter a valid email address");
+        return email;
+    }
+
+    public static void validPassword(String password) {
+        if (password == null || password.length() < 8) throw Api.bad("Password must be at least 8 characters");
     }
 
     @GetMapping("/me")
@@ -71,22 +85,22 @@ public class AuthController {
 
     @GetMapping("/me/matches")
     List<MatchSummary> myMatches(@AuthenticationPrincipal Jwt token) {
-        return matchService.summaries(matches.findMine(Me.of(token).id(), PageRequest.of(0, 30)));
+        return matchService.summaries(matches.findByOwner(Me.of(token).org(), PageRequest.of(0, 50)));
     }
 
     @GetMapping("/me/teams")
     List<TeamRef> myTeams(@AuthenticationPrincipal Jwt token) {
-        return teams.findByOwnerIdOrderByName(Me.of(token).id()).stream().map(MatchService::ref).toList();
+        return teams.findByOwnerIdOrderByName(Me.of(token).org()).stream().map(MatchService::ref).toList();
     }
 
     private Session session(User u) {
         Instant now = Instant.now();
         // Long-lived so a scorer is not signed out mid-match at a ground with no signal.
-        JwtClaimsSet claims = JwtClaimsSet.builder().subject(u.id.toString()).claim("adm", u.admin)
+        JwtClaimsSet claims = JwtClaimsSet.builder().subject(u.id.toString()).claim("role", u.role).claim("org", u.orgId.toString())
                 .issuedAt(now).expiresAt(now.plus(30, ChronoUnit.DAYS)).build();
         String token = jwt.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims)).getTokenValue();
         return new Session(token, view(u));
     }
 
-    private static UserView view(User u) { return new UserView(u.id, u.email, u.name, u.admin); }
+    public static UserView view(User u) { return new UserView(u.id, u.email, u.name, u.username, u.role, Me.ADMIN.equals(u.role)); }
 }

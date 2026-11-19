@@ -1,6 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
-import { Bell, CalendarDays, CircleHelp, LayoutGrid, LogOut, Plus, Radio, Search, Settings, Shield, Trophy } from 'lucide-react'
+import { CalendarDays, LayoutGrid, LogOut, Plus, Radio, Search, Shield, Trophy, UserCog } from 'lucide-react'
 import { useAuth } from './auth'
 import { initials } from './ui'
 import Overview from './pages/Overview'
@@ -12,6 +12,7 @@ import Tournaments from './pages/Tournaments'
 import TournamentPage from './pages/TournamentPage'
 import { PlayerPage, TeamPage, Teams } from './pages/Teams'
 import { Login, SearchPage } from './pages/Misc'
+import Scorers from './pages/Scorers'
 
 const NAV = [
   { to: '/', label: 'Overview', icon: LayoutGrid, end: true },
@@ -41,19 +42,20 @@ function Shell() {
         {NAV.map((n) => (
           <NavLink key={n.label} to={n.to} className={() => `nav ${active(n) ? 'active' : ''}`}><n.icon size={17} />{n.label}</NavLink>
         ))}
-        <div className="side-sep" />
-        <Link to="/matches/new" className="nav"><Plus size={17} />Start a match</Link>
+        {user?.admin && (
+          <>
+            <NavLink to="/scorers" className={({ isActive }) => `nav ${isActive ? 'active' : ''}`}><UserCog size={17} />Scorers</NavLink>
+            <div className="side-sep" />
+            <Link to="/matches/new" className="nav"><Plus size={17} />Start a match</Link>
+          </>
+        )}
         <div className="side-foot">
-          <div className="row" style={{ padding: '0 8px 10px', fontSize: 11, color: 'var(--dim)', gap: 6 }}>
-            <span className="status-dot green" style={{ width: 6, height: 6 }} />
-            <span>System online · 12 feeds</span>
-          </div>
           {user ? (
             <div className="user-chip">
               <span className="avatar">{initials(user.name)}</span>
               <div className="grow">
                 <div className="truncate" style={{ fontWeight: 700, fontSize: 13 }}>{user.name}</div>
-                <div className="small muted truncate">Broadcast Admin</div>
+                <div className="small muted truncate">{user.admin ? 'Admin' : 'Scorer'}</div>
               </div>
               <button className="icon-btn" onClick={logout} aria-label="Sign out" title="Sign out"><LogOut size={15} /></button>
             </div>
@@ -66,23 +68,16 @@ function Shell() {
         <header className="top">
           <form className="search" onSubmit={search} role="search">
             <Search size={15} />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search matches, teams, content…" aria-label="Search" />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search matches, teams, players…" aria-label="Search" />
             <span className="dim small hide-sm" style={{ padding: '2px 6px', background: 'var(--panel-2)', borderRadius: 5, fontSize: 10, fontWeight: 700 }}>⌘K</span>
           </form>
           <div className="grow" />
-          <Link to="/matches?tab=live" className="on-air-pill">
-            <span className="dot" />
-            <span>ON AIR</span>
-          </Link>
-          <button className="icon-btn hide-sm" aria-label="Notifications" title="Notifications"><Bell size={16} /></button>
-          <button className="icon-btn hide-sm" aria-label="Help" title="Help"><CircleHelp size={16} /></button>
-          <button className="icon-btn hide-sm" aria-label="Settings" title="Settings"><Settings size={16} /></button>
           {user ? (
             <span className="avatar hide-sm" title={user.name}>{initials(user.name)}</span>
           ) : (
             <Link to="/login" className="btn hide-sm">Sign in</Link>
           )}
-          <Link to="/matches/new" className="btn primary"><Plus size={16} />Publish content</Link>
+          {user?.admin && <Link to="/matches/new" className="btn primary"><Plus size={16} />Start a match</Link>}
         </header>
         <Outlet />
       </div>
@@ -103,12 +98,13 @@ function Wickets() {
   )
 }
 
-/** Pages that write need an account; viewing never does. */
-function Private({ children }: { children: ReactNode }) {
+/** Pages that write need an account; viewing a shared link never does. `admin` pages are for admins only. */
+function Private({ children, admin }: { children: ReactNode; admin?: boolean }) {
   const { user, ready } = useAuth()
   const loc = useLocation()
   if (!ready) return <div className="empty">Loading…</div>
   if (!user) return <Navigate to={`/login?next=${encodeURIComponent(loc.pathname + loc.search)}`} replace />
+  if (admin && !user.admin) return <div className="page"><div className="card empty">Only an admin can do this. Ask your admin.</div></div>
   return <>{children}</>
 }
 
@@ -119,7 +115,8 @@ export default function App() {
       <Route element={<Shell />}>
         <Route path="/" element={<Overview />} />
         <Route path="/matches" element={<Matches />} />
-        <Route path="/matches/new" element={<Private><NewMatch /></Private>} />
+        <Route path="/matches/new" element={<Private admin><NewMatch /></Private>} />
+        <Route path="/scorers" element={<Private admin><Scorers /></Private>} />
         <Route path="/matches/:id" element={<MatchPage />} />
         <Route path="/tournaments" element={<Tournaments />} />
         <Route path="/tournaments/:id" element={<TournamentPage />} />

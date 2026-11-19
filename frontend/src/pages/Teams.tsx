@@ -4,24 +4,23 @@ import { Plus } from 'lucide-react'
 import { api, errorText, useApi } from '../api'
 import { useAuth } from '../auth'
 import type { Career, MatchSummary, Player, TeamRef } from '../types'
-import { Badge, Field, MatchList, Modal, ShareButton, Status } from '../ui'
+import { Badge, Field, MatchList, Modal, ShareButton, SignInPrompt, Status } from '../ui'
+import toast from 'react-hot-toast'
 
 export function Teams() {
-  const { user } = useAuth()
+  const { user, ready } = useAuth()
   const nav = useNavigate()
-  const { data, error, loading } = useApi<TeamRef[]>('/teams')
-  const { data: mine } = useApi<TeamRef[]>(user ? '/me/teams' : null)
+  const { data, error, loading } = useApi<TeamRef[]>(user ? '/teams' : null)
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [shortName, setShort] = useState('')
   const [homeGround, setGround] = useState('')
-  const [err, setErr] = useState<string | null>(null)
   const create = async (e: FormEvent) => {
     e.preventDefault()
     try {
       const { id } = await api<{ id: string }>('POST', '/teams', { name, shortName: shortName || null, homeGround: homeGround || null })
       nav(`/teams/${id}`)
-    } catch (x) { setErr(errorText(x)) }
+    } catch (x) { toast.error(errorText(x)) }
   }
   const grid = (list: TeamRef[]) => (
     <div className="grid thirds">
@@ -30,17 +29,16 @@ export function Teams() {
   )
   return (
     <div className="page">
-      <div className="page-head"><h1>Teams</h1><button className="btn primary" onClick={() => (user ? setOpen(true) : nav('/login?next=/teams'))}><Plus size={16} />New team</button></div>
+      <div className="page-head"><h1>Teams</h1>{user?.admin && <button className="btn primary" onClick={() => setOpen(true)}><Plus size={16} />New team</button>}</div>
+      {ready && !user && <SignInPrompt what="teams" />}
       <Status loading={loading} error={error} />
-      {mine && mine.length > 0 && <><h2 style={{ margin: '4px 0 10px' }}>Your teams</h2>{grid(mine)}<h2 style={{ margin: '20px 0 10px' }}>All teams</h2></>}
-      {data && (data.length ? grid(data) : <div className="card empty">No teams yet. Create one, or start a quick match and teams are made for you.</div>)}
+      {data && (data.length ? grid(data) : <div className="card empty">{user?.admin ? 'No teams yet. Create one, or start a quick match and teams are made for you.' : 'Your admin has not created any teams yet.'}</div>)}
       {open && (
         <Modal title="New team" onClose={() => setOpen(false)}>
           <form className="col" onSubmit={create}>
             <Field label="Team name"><input className="input" value={name} onChange={(e) => setName(e.target.value)} required autoFocus /></Field>
             <Field label="Short name (up to 4 letters)"><input className="input" value={shortName} maxLength={4} onChange={(e) => setShort(e.target.value)} /></Field>
             <Field label="Home ground"><input className="input" value={homeGround} onChange={(e) => setGround(e.target.value)} /></Field>
-            {err && <div className="note error">{err}</div>}
             <button className="btn primary">Create team</button>
           </form>
         </Modal>
@@ -61,16 +59,15 @@ export function TeamPage() {
   const [role, setRole] = useState('')
   const [hand, setHand] = useState('')
   const [style, setStyle] = useState('')
-  const [err, setErr] = useState<string | null>(null)
   if (!data) return <div className="page"><Status loading={loading} error={error} /></div>
   const add = async (e: FormEvent) => {
     e.preventDefault()
     try {
       await api('POST', `/teams/${id}/players`, { name, playerRole: role || null, battingHand: hand || null, bowlingStyle: style || null })
-      setName(''); setErr(null); await reload()
-    } catch (x) { setErr(errorText(x)) }
+      toast.success(`${name.trim()} added`); setName(''); await reload()
+    } catch (x) { toast.error(errorText(x)) }
   }
-  const remove = async (pid: string) => { try { await api('DELETE', `/teams/${id}/players/${pid}`); await reload() } catch (x) { setErr(errorText(x)) } }
+  const remove = async (pid: string) => { try { await api('DELETE', `/teams/${id}/players/${pid}`); await reload() } catch (x) { toast.error(errorText(x)) } }
   const r = data.record
   return (
     <div className="page">
@@ -104,8 +101,7 @@ export function TeamPage() {
                   <option value="">Batting hand…</option><option>Right</option><option>Left</option></select>
               </div>
               <input className="input" value={style} onChange={(e) => setStyle(e.target.value)} placeholder="Bowling style, e.g. Right-arm off spin" aria-label="Bowling style" />
-              {err && <div className="note error">{err}</div>}
-              <button className="btn"><Plus size={16} />Add player</button>
+                <button className="btn"><Plus size={16} />Add player</button>
             </form>
           )}
         </div>

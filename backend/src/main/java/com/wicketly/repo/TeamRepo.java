@@ -11,6 +11,7 @@ import org.springframework.data.jpa.repository.Query;
 
 public interface TeamRepo extends JpaRepository<Team, UUID> {
     List<Team> findByOwnerIdOrderByName(UUID ownerId);
-    List<Team> findTop20ByNameContainingIgnoreCaseOrderByName(String q);
-    List<Team> findTop50ByOrderByCreatedAtDesc();
+    List<Team> findTop20ByOwnerIdAndNameContainingIgnoreCaseOrderByName(UUID ownerId, String q);
+    List<Team> findTop100ByOwnerIdOrderByCreatedAtDesc(UUID ownerId);
+    long countByOwnerId(UUID ownerId);
 }

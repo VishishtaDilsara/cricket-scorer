@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { api, errorText, useApi } from '../api'
 import type { TeamRef } from '../types'
 import { Field } from '../ui'
+import toast from 'react-hot-toast'
 
 const FORMATS: Record<string, { overs: number; balls: number }> = {
   T20: { overs: 20, balls: 6 }, T10: { overs: 10, balls: 6 }, '50 overs': { overs: 50, balls: 6 },
@@ -28,7 +29,6 @@ export default function NewMatch() {
   const [practice, setPractice] = useState(false)
   const [ground, setGround] = useState('')
   const [when, setWhen] = useState('')
-  const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   const pickFormat = (f: string) => { setFormat(f); setOvers(FORMATS[f].overs); setBalls(FORMATS[f].balls) }
@@ -39,7 +39,7 @@ export default function NewMatch() {
 
   const submit = async (e: FormEvent, score: boolean) => {
     e.preventDefault()
-    if (!teamA.trim() || !teamB.trim()) { setError('Enter both team names'); return }
+    if (!teamA.trim() || !teamB.trim()) { toast.error('Enter both team names'); return }
     setBusy(true)
     try {
       const { id } = await api<{ id: string }>('POST', '/matches', {
@@ -49,7 +49,7 @@ export default function NewMatch() {
       })
       nav(score ? `/matches/${id}/score` : `/matches/${id}`)
     } catch (err) {
-      setError(errorText(err))
+      toast.error(errorText(err))
       setBusy(false)
     }
   }
@@ -85,7 +85,6 @@ export default function NewMatch() {
             </div>
           </div>
         )}
-        {error && <div className="note error">{error}</div>}
         <div className="row wrap">
           <button className="btn primary" disabled={busy}>Create and start scoring</button>
           <button type="button" className="btn" disabled={busy} onClick={(e) => submit(e, false)}>Save as a fixture</button>

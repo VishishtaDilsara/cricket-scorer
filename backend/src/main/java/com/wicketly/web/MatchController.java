@@ -3,7 +3,6 @@ package com.wicketly.web;
 import com.wicketly.repo.MatchRepo;
 import com.wicketly.service.*;
 import com.wicketly.service.MatchService.MatchReq;
-import com.wicketly.service.MatchService.ScorerView;
 import com.wicketly.service.ScoringService.*;
 import com.wicketly.service.Views.MatchSummary;
 import com.wicketly.service.Views.MatchView;
@@ -30,13 +29,16 @@ public class MatchController {
         this.matchService = matchService; this.scoring = scoring; this.matches = matches; this.live = live;
     }
 
+    /** Matches in the signed-in admin's space; empty for visitors who are not signed in. */
     @GetMapping
-    List<MatchSummary> list(@RequestParam(defaultValue = "recent") String filter) {
-        PageRequest page = PageRequest.of(0, 30);
+    List<MatchSummary> list(@RequestParam(defaultValue = "recent") String filter, @AuthenticationPrincipal Jwt jwt) {
+        UUID org = Me.orgOf(Me.of(jwt));
+        if (org == null) return List.of();
+        PageRequest page = PageRequest.of(0, 50);
         return matchService.summaries(switch (filter) {
-            case "live" -> matches.listByStates(List.of("LIVE", "INNINGS_BREAK"), page);
-            case "upcoming" -> matches.upcoming("SCHEDULED", page);
-            default -> matches.listByStates(List.of("COMPLETED", "ABANDONED"), page);
+            case "live" -> matches.listByStates(org, List.of("LIVE", "INNINGS_BREAK"), page);
+            case "upcoming" -> matches.upcoming(org, "SCHEDULED", page);
+            default -> matches.listByStates(org, List.of("COMPLETED", "ABANDONED"), page);
         });
     }
 
@@ -69,22 +71,6 @@ public class MatchController {
     @DeleteMapping("/{id}")
     void delete(@PathVariable UUID id, @AuthenticationPrincipal Jwt jwt) {
         matchService.delete(id, Me.of(jwt));
-    }
-
-    @GetMapping("/{id}/scorers")
-    List<ScorerView> scorers(@PathVariable UUID id, @AuthenticationPrincipal Jwt jwt) {
-        if (jwt == null) throw Api.forbidden();
-        return matchService.scorers(id, Me.of(jwt));
-    }
-
-    @PostMapping("/{id}/scorers")
-    void addScorer(@PathVariable UUID id, @RequestBody Map<String, String> body, @AuthenticationPrincipal Jwt jwt) {
-        matchService.addScorer(id, body.get("email"), Me.of(jwt));
-    }
-
-    @DeleteMapping("/{id}/scorers/{userId}")
-    void removeScorer(@PathVariable UUID id, @PathVariable UUID userId, @AuthenticationPrincipal Jwt jwt) {
-        matchService.removeScorer(id, userId, Me.of(jwt));
     }
 
     // ---------- scoring ----------

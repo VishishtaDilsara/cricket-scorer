@@ -62,9 +62,11 @@ public class TournamentService {
 
     // ---------- read ----------
 
-    public List<TournamentCard> list(String q) {
-        List<Tournament> list = q == null || q.isBlank() ? tournaments.findTop50ByOrderByCreatedAtDesc()
-                : tournaments.findTop20ByNameContainingIgnoreCaseOrderByName(q.trim());
+    /** Tournaments in one admin's space; empty when {@code org} is null (nobody signed in). */
+    public List<TournamentCard> list(String q, UUID org) {
+        if (org == null) return List.of();
+        List<Tournament> list = q == null || q.isBlank() ? tournaments.findTop50ByOwnerIdOrderByCreatedAtDesc(org)
+                : tournaments.findTop20ByOwnerIdAndNameContainingIgnoreCaseOrderByName(org, q.trim());
         return list.stream().map(t -> new TournamentCard(t.id, t.name, t.structure, t.status, t.startDate, t.endDate, t.venue,
                 tts.findByTournamentId(t.id).size())).toList();
     }
@@ -174,8 +176,9 @@ public class TournamentService {
     // ---------- setup ----------
 
     public Tournament create(TournamentReq r, Me me) {
+        access.requireAdmin(me);
         Tournament t = new Tournament();
-        t.ownerId = me.id();
+        t.ownerId = me.org();
         t.structure = "LEAGUE";
         apply(t, r);
         if (t.name == null || t.name.isBlank()) throw Api.bad("Tournament name is required");
@@ -217,8 +220,8 @@ public class TournamentService {
 
     public void addTeam(UUID id, UUID teamId, String name, Me me) {
         Tournament t = managed(id, me);
-        Team team = teamId != null ? teams.findById(teamId).orElseThrow(() -> Api.notFound("Team"))
-                : teams.save(MatchService.newTeam(Optional.ofNullable(name).filter(n -> !n.isBlank()).orElseThrow(() -> Api.bad("Team name is required")), me.id()));
+        Team team = teamId != null ? teams.findById(teamId).filter(x -> Access.sameOrg(me, x.ownerId)).orElseThrow(() -> Api.notFound("Team"))
+                : teams.save(MatchService.newTeam(Optional.ofNullable(name).filter(n -> !n.isBlank()).orElseThrow(() -> Api.bad("Team name is required")), t.ownerId));
         if (tts.findByTournamentIdAndTeamId(id, team.id).isPresent()) return;
         TournamentTeam e = new TournamentTeam();
         e.tournamentId = t.id;
@@ -384,6 +387,7 @@ public class TournamentService {
         Match m = new Match();
         m.tournamentId = t.id;
         m.createdBy = t.ownerId;
+        m.ownerId = t.ownerId;
         m.sortOrder = order;
         m.overs = t.overs; m.playersPerSide = t.playersPerSide; m.ballsPerOver = t.ballsPerOver;
         m.maxOversPerBowler = (int) Math.ceil(t.overs / 5.0);

@@ -2,11 +2,13 @@ import { useEffect, useMemo, useState, useSyncExternalStore, type FormEvent } fr
 import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, ArrowLeftRight, CloudOff, MoreHorizontal, RefreshCw, Sun, Undo2, Wifi } from 'lucide-react'
 import { store as local } from '../api'
+import { useAuth } from '../auth'
 import { DISMISSAL_LABEL, allowedDismissals } from '../engine'
 import { ScorerStore } from '../scorer/store'
 import type { Ball, Dismissal, ExtraType, InningsView, MatchView, PlayerRef, TeamFull } from '../types'
 import { BallChip, Field, Modal } from '../ui'
 import { chase } from './Overview'
+import toast from 'react-hot-toast'
 
 type Mods = { wide: boolean; noBall: boolean; bye: boolean; legBye: boolean }
 const NO_MODS: Mods = { wide: false, noBall: false, bye: false, legBye: false }
@@ -16,6 +18,12 @@ export default function Scorer() {
   const { id } = useParams()
   const store = useMemo(() => new ScorerStore(id!), [id])
   useSyncExternalStore(store.subscribe, store.snapshot)
+  // Sync and server errors pop up as toasts; the same message is shown once even if it repeats while retrying.
+  useEffect(() => {
+    if (!store.error) return
+    toast.error(store.error, { id: store.error })
+    store.dismissError()
+  }, [store, store.error])
   useEffect(() => { void store.init(); return () => store.dispose() }, [store])
   const [sun, setSun] = useState(local.get('wk:sun') === '1')
   const [mods, setMods] = useState<Mods>(NO_MODS)
@@ -63,7 +71,6 @@ export default function Scorer() {
         <button className="icon-btn" onClick={toggleSun} aria-label="Toggle sunlight theme" title="Sunlight theme"><Sun size={16} /></button>
       </div>
 
-      {store.error && <div className="note error row between"><span>{store.error}</span><button className="btn sm" onClick={() => store.dismissError()}>OK</button></div>}
       {locked && <div className="note info row between wrap"><span>Another device is scoring this match. This screen is read-only.</span><button className="btn sm primary" onClick={() => store.claim(true)}>Take over scoring</button></div>}
 
       {m.state === 'SCHEDULED' && <Toss doc={doc} onStart={(w, d) => store.start(w, d)} disabled={locked} />}
@@ -200,6 +207,7 @@ function Toss({ doc, onStart, disabled }: { doc: MatchView; onStart: (winner: st
 }
 
 function PlayerPicker({ role, store, inn, onDone, inline }: { role: 'striker' | 'nonStriker' | 'bowler'; store: ScorerStore; inn: InningsView; onDone: () => void; inline?: boolean }) {
+  const admin = useAuth().user?.admin ?? false
   const [name, setName] = useState('')
   const doc = store.doc!, st = inn.state, rules = store.rulesFor(inn)
   const batting = role !== 'bowler'
@@ -237,12 +245,14 @@ function PlayerPicker({ role, store, inn, onDone, inline }: { role: 'striker' | 
       <div className="pick-list">
         {team.players.map((p) => { const why = blocked(p); return (
           <button key={p.id} disabled={why !== null} onClick={() => pick(p.id)}><span>{p.name}</span><span className="muted small num">{why ?? figures(p)}</span></button>) })}
-        {!team.players.length && <div className="muted small">No players yet. Add the first one below.</div>}
+        {!team.players.length && <div className="muted small">{admin ? 'No players yet. Add the first one below.' : 'No players in this team yet.'}</div>}
       </div>
-      <form className="row" onSubmit={add}>
-        <input className="input" placeholder="Add a new player by name" value={name} onChange={(e) => setName(e.target.value)} aria-label="New player name" />
-        <button className="btn">Add</button>
-      </form>
+      {admin ? (
+        <form className="row" onSubmit={add}>
+          <input className="input" placeholder="Add a new player by name" value={name} onChange={(e) => setName(e.target.value)} aria-label="New player name" />
+          <button className="btn">Add</button>
+        </form>
+      ) : <div className="small muted">Player missing? Ask your admin to add them to the team.</div>}
     </div>
   )
 }
@@ -315,9 +325,8 @@ function ResultSheet({ store, doc, onClose }: { store: ScorerStore; doc: MatchVi
   const [type, setType] = useState('ABANDONED')
   const [winner, setWinner] = useState(doc.teamA?.id ?? '')
   const [reason, setReason] = useState('')
-  const [error, setError] = useState<string | null>(null)
   const submit = async () => {
-    try { await store.setResult(type, type === 'WIN' ? winner : null, reason); onClose() } catch (e) { setError(e instanceof Error ? e.message : 'Failed') }
+    try { await store.setResult(type, type === 'WIN' ? winner : null, reason); onClose() } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed') }
   }
   return (
     <Modal title="Set the result" onClose={onClose}>
@@ -326,7 +335,6 @@ function ResultSheet({ store, doc, onClose }: { store: ScorerStore; doc: MatchVi
           <option value="ABANDONED">Match abandoned</option><option value="NO_RESULT">No result</option><option value="TIE">Tie</option><option value="WIN">Awarded win</option></select></Field>
         {type === 'WIN' && <Field label="Winner"><select className="input" value={winner} onChange={(e) => setWinner(e.target.value)}>{[doc.teamA, doc.teamB].map((t) => t && <option key={t.id} value={t.id}>{t.name}</option>)}</select></Field>}
         <Field label="Reason (recorded)"><input className="input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Rain, super over, walkover" /></Field>
-        {error && <div className="note error">{error}</div>}
         <button className="btn primary" disabled={!reason.trim()} onClick={submit}>Confirm result</button>
       </div>
     </Modal>

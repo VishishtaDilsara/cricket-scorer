@@ -20,7 +20,6 @@ public class MatchService {
                            String ground, String format, Integer overs, Integer playersPerSide, Integer ballsPerOver,
                            Integer maxOversPerBowler, Integer wideRuns, Integer noBallRuns, Boolean freeHit,
                            Boolean lastManStands, Boolean listed, Boolean practice, UUID tournamentId) {}
-    public record ScorerView(UUID userId, String name, String email) {}
 
     private final MatchRepo matches;
     private final InningsRepo inningsRepo;
@@ -29,17 +28,15 @@ public class MatchService {
     private final PlayerRepo players;
     private final TournamentRepo tournaments;
     private final TournamentTeamRepo tournamentTeams;
-    private final MatchScorerRepo scorers;
-    private final UserRepo users;
     private final Access access;
     private final LiveHub live;
 
     public MatchService(MatchRepo matches, InningsRepo inningsRepo, BallRepo balls, TeamRepo teams, PlayerRepo players,
-                        TournamentRepo tournaments, TournamentTeamRepo tournamentTeams, MatchScorerRepo scorers,
-                        UserRepo users, Access access, LiveHub live) {
+                        TournamentRepo tournaments, TournamentTeamRepo tournamentTeams,
+                        Access access, LiveHub live) {
         this.matches = matches; this.inningsRepo = inningsRepo; this.balls = balls; this.teams = teams;
         this.players = players; this.tournaments = tournaments; this.tournamentTeams = tournamentTeams;
-        this.scorers = scorers; this.users = users; this.access = access; this.live = live;
+        this.access = access; this.live = live;
     }
 
     public static Rules rules(Match m, Innings i) {
@@ -170,8 +167,10 @@ public class MatchService {
     // ---------- write ----------
 
     public Match create(MatchReq r, Me me) {
+        access.requireAdmin(me);
         Match m = new Match();
         m.createdBy = me.id();
+        m.ownerId = me.org();
         if (r.tournamentId() != null) {
             Tournament t = tournaments.findById(r.tournamentId()).orElseThrow(() -> Api.notFound("Tournament"));
             if (!access.canManage(me, t)) throw Api.forbidden();
@@ -230,10 +229,15 @@ public class MatchService {
         return v;
     }
 
+    /** An existing team from the admin's own space, or a new one created there by name. */
     private UUID team(UUID id, String name, Me me) {
-        if (id != null) return teams.findById(id).orElseThrow(() -> Api.notFound("Team")).id;
+        if (id != null) {
+            Team t = teams.findById(id).orElseThrow(() -> Api.notFound("Team"));
+            if (!Access.sameOrg(me, t.ownerId)) throw Api.notFound("Team");
+            return t.id;
+        }
         if (name == null || name.isBlank()) return null;
-        return teams.save(newTeam(name, me.id())).id;
+        return teams.save(newTeam(name, me.org())).id;
     }
 
     public static Team newTeam(String name, UUID owner) {
@@ -253,30 +257,5 @@ public class MatchService {
         Match m = get(id);
         if (!access.canManage(me, m)) throw Api.forbidden();
         matches.delete(m);
-    }
-
-    public List<ScorerView> scorers(UUID id, Me me) {
-        Match m = get(id);
-        if (!access.canManage(me, m)) throw Api.forbidden();
-        return scorers.findByMatchId(id).stream().map(s -> users.findById(s.userId).orElse(null)).filter(Objects::nonNull)
-                .map(u -> new ScorerView(u.id, u.name, u.email)).toList();
-    }
-
-    public void addScorer(UUID id, String email, Me me) {
-        Match m = get(id);
-        if (!access.canManage(me, m)) throw Api.forbidden();
-        User u = users.findByEmailIgnoreCase(email == null ? "" : email.trim())
-                .orElseThrow(() -> Api.bad("No Cricket Scorer account uses that email. Ask them to register first."));
-        if (scorers.existsByMatchIdAndUserId(id, u.id)) return;
-        MatchScorer s = new MatchScorer();
-        s.matchId = id;
-        s.userId = u.id;
-        scorers.save(s);
-    }
-
-    public void removeScorer(UUID id, UUID userId, Me me) {
-        Match m = get(id);
-        if (!access.canManage(me, m)) throw Api.forbidden();
-        scorers.findByMatchId(id).stream().filter(s -> s.userId.equals(userId)).forEach(scorers::delete);
     }
 }

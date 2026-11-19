@@ -3,7 +3,8 @@ import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { errorText, useApi } from '../api'
 import { useAuth } from '../auth'
 import type { MatchSummary, Player, TeamRef, TournamentCard } from '../types'
-import { Badge, Field, MatchList, Status } from '../ui'
+import { Badge, Field, MatchList, SignInPrompt, Status } from '../ui'
+import toast from 'react-hot-toast'
 
 export function Login() {
   const { user, login, register } = useAuth()
@@ -12,19 +13,17 @@ export function Login() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   if (user) return <Navigate to={params.get('next') || '/'} replace />
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     setBusy(true)
-    setError(null)
     try {
       if (mode === 'in') await login(email, password)
       else await register(name, email, password)
     } catch (err) {
-      setError(errorText(err))
+      toast.error(errorText(err))
     } finally {
       setBusy(false)
     }
@@ -32,16 +31,19 @@ export function Login() {
   return (
     <div className="page" style={{ maxWidth: 420 }}>
       <form className="card col" style={{ gap: 14, marginTop: 30 }} onSubmit={submit}>
-        <div><h1>{mode === 'in' ? 'Sign in' : 'Create your account'}</h1><div className="muted small">You only need an account to score or organise. Following a match never needs one.</div></div>
+        <div><h1>{mode === 'in' ? 'Sign in' : 'Create an admin account'}</h1><div className="muted small">{mode === 'in'
+          ? 'Admins and scorers sign in here. Following a shared match link never needs an account.'
+          : 'You get your own space for teams, players, tournaments and matches, and can create scorer accounts. Scorers do not sign up here; their admin creates them.'}</div></div>
         {mode === 'up' && <Field label="Your name"><input className="input" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" required /></Field>}
-        <Field label="Email"><input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required /></Field>
+        <Field label={mode === 'in' ? 'Email or username' : 'Email'}>
+          <input className="input" type={mode === 'in' ? 'text' : 'email'} value={email} onChange={(e) => setEmail(e.target.value)} autoComplete={mode === 'in' ? 'username' : 'email'} autoCapitalize="none" required />
+        </Field>
         <Field label={mode === 'up' ? 'Password (8 characters or more)' : 'Password'}>
           <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={mode === 'in' ? 'current-password' : 'new-password'} required minLength={mode === 'up' ? 8 : 1} />
         </Field>
-        {error && <div className="note error">{error}</div>}
         <button className="btn primary block" disabled={busy}>{mode === 'in' ? 'Sign in' : 'Create account'}</button>
-        <button type="button" className="btn ghost block" onClick={() => { setMode(mode === 'in' ? 'up' : 'in'); setError(null) }}>
-          {mode === 'in' ? 'New here? Create an account' : 'Already have an account? Sign in'}
+        <button type="button" className="btn ghost block" onClick={() => { setMode(mode === 'in' ? 'up' : 'in') }}>
+          {mode === 'in' ? 'New admin? Create an account' : 'Already have an account? Sign in'}
         </button>
       </form>
     </div>
@@ -53,11 +55,13 @@ type Results = { matches: MatchSummary[]; teams: TeamRef[]; players: Player[]; t
 export function SearchPage() {
   const [params] = useSearchParams()
   const q = params.get('q') ?? ''
-  const { data, error, loading } = useApi<Results>(q ? `/search?q=${encodeURIComponent(q)}` : null)
+  const { user, ready } = useAuth()
+  const { data, error, loading } = useApi<Results>(q && user ? `/search?q=${encodeURIComponent(q)}` : null)
   const none = data && !data.matches.length && !data.teams.length && !data.players.length && !data.tournaments.length
   return (
     <div className="page">
       <div className="page-head"><h1>Results for “{q}”</h1></div>
+      {ready && !user && <SignInPrompt what="search results" />}
       <Status loading={loading} error={error} />
       {none && <div className="empty">Nothing matched. Try a team, player or tournament name.</div>}
       {data && (

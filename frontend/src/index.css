@@ -147,8 +147,14 @@ table.table { width: 100%; border-collapse: collapse; }
 .stat-row .k { font-size: 11px; color: var(--dim); font-weight: 700; }
 .stat-row .v { font-size: 17px; font-weight: 800; font-variant-numeric: tabular-nums; }
 
-.bracket { display: flex; gap: 22px; overflow-x: auto; padding-bottom: 6px; }
-.bracket .round { display: flex; flex-direction: column; justify-content: space-around; gap: 14px; min-width: 230px; }
+.bracket { overflow-x: auto; padding-bottom: 6px; }
+.bracket-inner { position: relative; display: flex; align-items: stretch; gap: 56px; width: max-content; min-width: 100%; }
+.bracket-lines { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+.bracket .round { display: flex; flex-direction: column; gap: 12px; width: 240px; }
+.bracket .round-head { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: var(--dim); height: 18px; }
+.bracket .round-body { flex: 1; display: flex; flex-direction: column; justify-content: space-around; gap: 14px; }
+.bracket .group-stage .round-body { justify-content: flex-start; gap: 18px; }
+.bracket .group-block { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px dashed var(--line-2); border-radius: 14px; }
 .bracket .tie { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); overflow: hidden; display: block; }
 .bracket .tie:hover { border-color: var(--brand); }
 .bracket .tie > div { display: flex; justify-content: space-between; gap: 10px; padding: 9px 12px; font-weight: 700; }
@@ -187,55 +193,6 @@ table.table { width: 100%; border-collapse: collapse; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--panel-2); font-weight: 700; cursor: pointer; min-height: 44px; }
 .chip.on { background: var(--brand); color: var(--brand-ink); border-color: transparent; }
-
-/* ---------- Pitchline Broadcast Elements & Sparklines ---------- */
-.tile-content { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; margin-top: 10px; }
-.tile-val-col { display: flex; flex-direction: column; gap: 4px; }
-.tile-trend { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; color: var(--good); }
-.tile-trend.neutral { color: var(--muted); }
-.sparkline-svg { overflow: visible; }
-
-.on-air-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: rgba(255, 75, 110, 0.16); border: 1px solid rgba(255, 75, 110, 0.35); color: #ff5e80; font-size: 11px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; }
-.on-air-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: #ff4b6e; box-shadow: 0 0 10px #ff4b6e; animation: pulse 1.4s infinite; }
-
-.timeline-bar-wrap { margin: 18px 0 14px; display: flex; flex-direction: column; gap: 6px; }
-.timeline-bar { display: flex; gap: 4px; height: 12px; width: 100%; border-radius: 6px; overflow: hidden; background: var(--panel-3); padding: 2px; }
-.timeline-seg { flex: 1; border-radius: 3px; background: var(--line); transition: all 0.2s; position: relative; }
-.timeline-seg.goal, .timeline-seg.six { background: #22c55e; box-shadow: 0 0 8px rgba(34, 197, 94, 0.6); }
-.timeline-seg.wicket { background: #ff4b6e; box-shadow: 0 0 8px rgba(255, 75, 110, 0.6); }
-.timeline-seg.yellow, .timeline-seg.four { background: #00e5ff; box-shadow: 0 0 8px rgba(0, 229, 255, 0.6); }
-.timeline-seg.extra { background: #ffb703; }
-.timeline-markers { display: flex; justify-content: space-between; font-size: 11px; font-weight: 700; color: var(--dim); padding: 0 2px; }
-.timeline-flag { display: inline-flex; align-items: center; gap: 3px; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 800; background: var(--panel-2); border: 1px solid var(--line-2); }
-.timeline-flag.goal { color: #22c55e; border-color: rgba(34, 197, 94, 0.3); }
-.timeline-flag.yellow { color: #00e5ff; border-color: rgba(0, 229, 255, 0.3); }
-
-.broadcast-stats { display: grid; grid-template-columns: repeat(4, 1fr) auto; gap: 12px; align-items: center; padding-top: 14px; border-top: 1px solid var(--line); margin-top: 14px; }
-.broadcast-stats .stat-item { display: flex; flex-direction: column; gap: 2px; }
-.broadcast-stats .stat-label { font-size: 11px; color: var(--dim); font-weight: 700; }
-.broadcast-stats .stat-val { font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; }
-
-.health-score { font-size: 32px; font-weight: 800; letter-spacing: -0.02em; }
-.status-indicator-list { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
-.status-indicator-item { display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 600; }
-.status-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 8px; }
-.status-dot.green { background: #22c55e; box-shadow: 0 0 8px rgba(34, 197, 94, 0.7); }
-.status-dot.amber { background: #ffb703; box-shadow: 0 0 8px rgba(255, 183, 3, 0.7); }
-.status-dot.blue { background: #00e5ff; box-shadow: 0 0 8px rgba(0, 229, 255, 0.7); }
-
-.pulse-chart-wrap { position: relative; margin-top: 8px; height: 110px; width: 100%; }
-.peak-badge { position: absolute; top: 12px; right: 28px; background: rgba(34, 197, 94, 0.15); border: 1px solid rgba(34, 197, 94, 0.4); color: #22c55e; font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 6px; }
-
-.queue-list { display: flex; flex-direction: column; gap: 10px; }
-.queue-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line); }
-.queue-title { font-weight: 700; font-size: 13px; }
-.queue-meta { font-size: 11px; color: var(--dim); margin-top: 2px; }
-
-.status-chip { font-size: 11px; font-weight: 800; padding: 3px 8px; border-radius: 6px; letter-spacing: 0.02em; }
-.status-chip.ready { background: rgba(34, 197, 94, 0.16); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.3); }
-.status-chip.review { background: rgba(255, 183, 3, 0.16); color: #ffb703; border: 1px solid rgba(255, 183, 3, 0.3); }
-.status-chip.scheduled { background: rgba(0, 229, 255, 0.16); color: #00e5ff; border: 1px solid rgba(0, 229, 255, 0.3); }
-.status-chip.draft { background: var(--panel-3); color: var(--dim); border: 1px solid var(--line-2); }
 
 /* ---------- responsive ---------- */
 @media (max-width: 1000px) {
