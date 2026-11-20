@@ -331,6 +331,8 @@ function Manage({ v, onClose }: { v: MatchView; onClose: () => void }) {
   const m = v.summary
   const [when, setWhen] = useState(m.scheduledAt ? toLocal(m.scheduledAt) : '')
   const [ground, setGround] = useState(m.ground ?? '')
+  const [overs, setOvers] = useState(v.rules.overs)
+  const [perSide, setPerSide] = useState(v.rules.playersPerSide)
   const [resultType, setResultType] = useState('WIN')
   const [winner, setWinner] = useState(m.teamA?.id ?? '')
   const [reason, setReason] = useState('')
@@ -342,12 +344,17 @@ function Manage({ v, onClose }: { v: MatchView; onClose: () => void }) {
     <Modal title="Manage match" onClose={onClose}>
       <div className="col" style={{ gap: 16 }}>
         <div className="col">
-          <h3>Schedule</h3>
+          <h3>{m.state === 'SCHEDULED' ? 'Schedule and format' : 'Schedule'}</h3>
           <div className="form-grid">
             <Field label="Date and time"><input className="input" type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} /></Field>
             <Field label="Ground"><input className="input" value={ground} onChange={(e) => setGround(e.target.value)} /></Field>
+            {m.state === 'SCHEDULED' && <>
+              <Field label="Overs per innings"><input className="input" type="number" min={1} max={100} value={overs} onChange={(e) => setOvers(+e.target.value)} /></Field>
+              <Field label="Players per side (2–11)"><input className="input" type="number" min={2} max={11} value={perSide} onChange={(e) => setPerSide(+e.target.value)} /></Field>
+            </>}
           </div>
-          <AsyncButton className="btn" busyText="Saving…" onClick={() => run(() => api('PUT', `/matches/${m.id}`, { scheduledAt: when ? new Date(when).toISOString() : null, ground }), 'Saved')}>Save schedule</AsyncButton>
+          {m.state === 'SCHEDULED' && <div className="small muted">Overs and players per side can be changed until the toss, for example when a team plays short.</div>}
+          <AsyncButton className="btn" busyText="Saving…" onClick={() => run(() => api('PUT', `/matches/${m.id}`, { scheduledAt: when ? new Date(when).toISOString() : null, ground, ...(m.state === 'SCHEDULED' ? { overs, playersPerSide: perSide, ...(overs !== v.rules.overs ? { format: `${overs} overs` } : {}) } : {}) }), 'Saved')}>Save</AsyncButton>
         </div>
         <div className="col">
           <h3>Set or override the result</h3>

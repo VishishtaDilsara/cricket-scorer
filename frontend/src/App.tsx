@@ -1,6 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
-import { CalendarDays, LayoutGrid, LogOut, Plus, Radio, Search, Shield, Trophy, UserCog, Users } from 'lucide-react'
+import { BookOpen, CalendarDays, LayoutGrid, LogOut, Plus, Radio, Search, Shield, Trophy, UserCog, Users } from 'lucide-react'
 import { useAuth } from './auth'
 import { initials, Loader } from './ui'
 import Overview from './pages/Overview'
@@ -14,6 +14,7 @@ import { PlayerPage, TeamPage, Teams } from './pages/Teams'
 import { Login, SearchPage } from './pages/Misc'
 import Scorers from './pages/Scorers'
 import Players from './pages/Players'
+import Docs from './pages/Docs'
 
 const NAV = [
   { to: '/', label: 'Overview', icon: LayoutGrid, end: true },
@@ -51,6 +52,7 @@ function Shell() {
             <Link to="/matches/new" className="nav"><Plus size={17} />Start a match</Link>
           </>
         )}
+        <NavLink to="/docs" className={({ isActive }) => `nav docs-link ${isActive ? 'active' : ''}`}><BookOpen size={17} />Docs</NavLink>
         <div className="side-foot">
           {user ? (
             <div className="user-chip">
@@ -127,6 +129,7 @@ export default function App() {
         <Route path="/players" element={<Private><Players /></Private>} />
         <Route path="/players/:id" element={<PlayerPage />} />
         <Route path="/search" element={<Private><SearchPage /></Private>} />
+        <Route path="/docs" element={<Docs />} />
         <Route path="/login" element={<Login />} />
         <Route path="*" element={<div className="page"><div className="empty">Page not found. <Link className="brand" to="/">Go to the overview</Link></div></div>} />
       </Route>

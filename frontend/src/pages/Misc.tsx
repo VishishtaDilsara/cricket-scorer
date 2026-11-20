@@ -45,6 +45,7 @@ export function Login() {
         <button type="button" className="btn ghost block" onClick={() => { setMode(mode === 'in' ? 'up' : 'in') }}>
           {mode === 'in' ? 'New admin? Create an account' : 'Already have an account? Sign in'}
         </button>
+        <div className="small muted" style={{ textAlign: 'center' }}>New here? <Link className="brand" to="/docs">Read what Cricket Scorer can do</Link></div>
       </form>
     </div>
   )
