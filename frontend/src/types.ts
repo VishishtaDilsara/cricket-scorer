@@ -51,9 +51,11 @@ export type InningsView = {
 export type MatchView = {
   summary: MatchSummary; rules: Rules; teamA: TeamFull | null; teamB: TeamFull | null
   tossWinnerId: string | null; tossDecision: string | null; listed: boolean; practice: boolean
-  overrideReason: string | null; playerOfMatchId: string | null; canScore: boolean; canManage: boolean; innings: InningsView[]; roles: TeamRoles[]
+  overrideReason: string | null; playerOfMatchId: string | null; canScore: boolean; canManage: boolean; innings: InningsView[]; roles: TeamRoles[]; lineups: TeamLineup[]
 }
-export type TeamRoles = { teamId: string; captainId: string | null; viceCaptainId: string | null; keeperId: string | null }
+export type TeamLineup = { teamId: string; playerIds: string[] }
+export type TeamRoles = { teamId: string; captainId: string | null; viceCaptainId: string | null; keeperId: string | null; fromTeam?: boolean
+  usual?: { captainId: string | null; viceCaptainId: string | null; keeperId: string | null } | null }
 
 export type Tournament = {
   id: string; name: string; structure: 'LEAGUE' | 'GROUPS_KNOCKOUT' | 'KNOCKOUT'; venue: string | null; ballType: string | null
@@ -70,6 +72,13 @@ export type TournamentView = {
   tournament: Tournament; canManage: boolean; teams: { team: TeamRef; groupName: string | null }[]
   fixtures: MatchSummary[]; tables: GroupTable[]
   adjustments: { id: string; teamId: string; teamName: string; pointsDelta: number; reason: string; createdAt: string }[]
+  summary?: TournamentSummary | null
+}
+export type Award = { playerId: string; name: string; team: TeamRef | null; headline: string; detail: string }
+export type TournamentSummary = {
+  champion: TeamRef | null; runnerUp: TeamRef | null; runnerUpNote: string | null; secondRunnerUp: TeamRef | null; secondRunnerUpNote: string | null
+  playerOfSeries: Award | null; bestBatter: Award | null; bestBowler: Award | null
+  matchesPlayed: number; fours: number; sixes: number; highestScore: string | null; bestBowling: string | null
 }
 export type TournamentCard = {
   id: string; name: string; structure: string; status: string; startDate: string | null; endDate: string | null

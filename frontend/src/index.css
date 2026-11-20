@@ -286,3 +286,49 @@ a.brand:hover, .brand a:hover { text-decoration: underline; text-underline-offse
 .player-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
 .player-tile { display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); min-width: 0; }
 .player-tile:hover { border-color: var(--line-2); background: var(--panel); }
+
+/* tournament summary */
+.podium { display: flex; flex-direction: column; gap: 12px; border-top: 4px solid var(--line-2); }
+.podium-label { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.podium-team { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
+.podium.gold { border-top-color: var(--brass); background: linear-gradient(180deg, rgba(184, 137, 44, 0.10), transparent 70%), var(--panel); padding: 22px; }
+.podium.gold .podium-label { color: #8a6418; }
+.podium.gold .podium-team { font-size: 30px; }
+.podium.silver { border-top-color: #9aa3ab; }
+.podium.bronze { border-top-color: #b07a4f; }
+.podium:hover { border-color: var(--line-2); }
+.award { display: flex; flex-direction: column; gap: 6px; border-top: 3px solid var(--brand); }
+.award-name { font-size: 18px; font-weight: 800; letter-spacing: -0.015em; margin-top: 4px; }
+.award-name:hover { text-decoration: underline; text-underline-offset: 3px; }
+.award-figure { font-size: 24px; font-weight: 800; letter-spacing: -0.02em; color: var(--brand); margin-top: 6px; }
+.squad-head.xi, .squad-row.xi { grid-template-columns: 24px 1fr 44px 44px 44px; }
+.xi-check { width: 18px; height: 18px; accent-color: var(--brand); margin: 0; }
+.squad-row.benched > span { color: var(--dim); }
+.role-dot.sm { width: 36px; height: 30px; }
+.roles-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 13px; }
+.roles-line .tag { font-weight: 800; font-size: 11px; color: var(--dim); margin-right: 4px; }
+.squad-head.xi.no-roles, .squad-row.xi.no-roles { grid-template-columns: 24px 1fr; }
+.icon-btn.on { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); }
+/* busy buttons */
+.spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; display: inline-block; flex: none; animation: spin .7s linear infinite; opacity: .85; }
+.btn.sm .spinner { width: 12px; height: 12px; }
+.btn[aria-busy='true'], button[aria-busy='true'] { cursor: progress; opacity: .8; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2s; } }
+
+/* page loading */
+.loader { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 48px 16px; color: var(--muted); font-size: 13px; font-weight: 600; }
+.loader-ring { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--brand); border-right-color: var(--accent); animation: spin .8s linear infinite; }
+
+/* small two-way switch (Existing / New) */
+.seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 8px; overflow: hidden; background: var(--panel-2); }
+.seg button { border: 0; background: none; padding: 3px 10px; font-size: 11.5px; font-weight: 700; color: var(--muted); cursor: pointer; }
+.seg button.on { background: var(--brand); color: var(--brand-ink); }
+
+/* Phones: iOS Safari zooms into any field whose text is under 16px, which pushes the page sideways.
+   16px fields stop that without disabling pinch-zoom, and nothing may make the page wider than the screen. */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { overflow-x: clip; }
+@media (max-width: 760px), (pointer: coarse) {
+  input, select, textarea, .input, select.input, .search input { font-size: 16px; }
+}

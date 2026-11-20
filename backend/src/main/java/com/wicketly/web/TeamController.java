@@ -143,10 +143,27 @@ public class TeamController {
         return Map.of("id", p.id);
     }
 
+    public record TeamRolesReq(UUID captainId, UUID viceCaptainId, UUID keeperId) {}
+
+    /** Sets the team's usual captain, vice-captain (optional) and wicket-keeper. New matches start with these. */
+    @PutMapping("/teams/{id}/roles")
+    void roles(@PathVariable UUID id, @RequestBody TeamRolesReq r, @AuthenticationPrincipal Jwt jwt) {
+        Team t = editable(id, jwt);
+        Set<UUID> squad = new HashSet<>();
+        players.findByTeam(id).forEach(p -> squad.add(p.id));
+        for (UUID p : Arrays.asList(r.captainId(), r.viceCaptainId(), r.keeperId()))
+            if (p != null && !squad.contains(p)) throw Api.bad("Captain, vice-captain and wicket-keeper must be in the squad");
+        if (r.captainId() != null && r.captainId().equals(r.viceCaptainId())) throw Api.bad("The captain cannot also be the vice-captain");
+        t.captainId = r.captainId(); t.viceCaptainId = r.viceCaptainId(); t.keeperId = r.keeperId();
+    }
+
     @DeleteMapping("/teams/{id}/players/{playerId}")
     void removePlayer(@PathVariable UUID id, @PathVariable UUID playerId, @AuthenticationPrincipal Jwt jwt) {
-        editable(id, jwt);
+        Team t = editable(id, jwt);
         teamPlayers.findByTeamIdAndPlayerId(id, playerId).ifPresent(teamPlayers::delete);
+        if (playerId.equals(t.captainId)) t.captainId = null;
+        if (playerId.equals(t.viceCaptainId)) t.viceCaptainId = null;
+        if (playerId.equals(t.keeperId)) t.keeperId = null;
     }
 
     @GetMapping("/players")

@@ -2,9 +2,8 @@ import { useState, type FormEvent } from 'react'
 import { UserPlus } from 'lucide-react'
 import { api, errorText, useApi } from '../api'
 import type { ScorerAccount } from '../types'
-import { Field, Modal, Status, initials } from '../ui'
+import { AsyncButton, BusyLabel, Field, Modal, Status, initials } from '../ui'
 import toast from 'react-hot-toast'
-import { confirm } from '../confirm'
 
 /** Admin only: the scorer accounts that can score this admin's matches. */
 export default function Scorers() {
@@ -13,7 +12,6 @@ export default function Scorers() {
   const [resetFor, setResetFor] = useState<ScorerAccount | null>(null)
 
   const remove = async (s: ScorerAccount) => {
-    if (!(await confirm({ title: `Delete scorer "${s.username ?? s.name}"?`, message: 'They will be signed out straight away and can no longer score your matches.', yes: 'Yes, delete', danger: true }))) return
     try { await api('DELETE', `/scorers/${s.id}`); toast.success('Scorer deleted'); await reload() } catch (e) { toast.error(errorText(e)) }
   }
 
@@ -36,7 +34,8 @@ export default function Scorers() {
                   <td className="left muted">{s.email}</td>
                   <td><span className="row" style={{ justifyContent: 'flex-end' }}>
                     <button className="btn sm" onClick={() => setResetFor(s)}>Reset password</button>
-                    <button className="btn sm danger" onClick={() => remove(s)}>Delete</button>
+                    <AsyncButton className="btn sm danger" busyText="Deleting…" onClick={() => remove(s)}
+                      confirmFirst={{ title: `Delete scorer "${s.username ?? s.name}"?`, message: 'They will be signed out straight away and can no longer score your matches.', yes: 'Yes, delete', danger: true }}>Delete</AsyncButton>
                   </span></td>
                 </tr>
               ))}
@@ -71,7 +70,7 @@ function NewScorer({ onClose, onDone }: { onClose: () => void; onDone: (username
         <Field label="Password (8 characters or more)">
           <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} autoComplete="new-password" />
         </Field>
-        <button className="btn primary" disabled={busy}>Create scorer</button>
+        <button className="btn primary" disabled={busy} aria-busy={busy}><BusyLabel busy={busy} text="Creating…">Create scorer</BusyLabel></button>
       </form>
     </Modal>
   )
@@ -79,9 +78,11 @@ function NewScorer({ onClose, onDone }: { onClose: () => void; onDone: (username
 
 function ResetPassword({ s, onClose, onDone }: { s: ScorerAccount; onClose: () => void; onDone: () => void }) {
   const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
   const submit = async (e: FormEvent) => {
     e.preventDefault()
-    try { await api('PUT', `/scorers/${s.id}/password`, { password }); onDone() } catch (x) { toast.error(errorText(x)) }
+    setBusy(true)
+    try { await api('PUT', `/scorers/${s.id}/password`, { password }); onDone() } catch (x) { toast.error(errorText(x)) } finally { setBusy(false) }
   }
   return (
     <Modal title={`New password for ${s.username ?? s.name}`} onClose={onClose}>
@@ -89,7 +90,7 @@ function ResetPassword({ s, onClose, onDone }: { s: ScorerAccount; onClose: () =
         <Field label="New password (8 characters or more)">
           <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} autoComplete="new-password" autoFocus />
         </Field>
-        <button className="btn primary">Change password</button>
+        <button className="btn primary" disabled={busy} aria-busy={busy}><BusyLabel busy={busy} text="Changing…">Change password</BusyLabel></button>
       </form>
     </Modal>
   )

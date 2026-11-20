@@ -2,7 +2,7 @@ import { useState, type FormEvent, type ReactNode } from 'react'
 import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { CalendarDays, LayoutGrid, LogOut, Plus, Radio, Search, Shield, Trophy, UserCog, Users } from 'lucide-react'
 import { useAuth } from './auth'
-import { initials } from './ui'
+import { initials, Loader } from './ui'
 import Overview from './pages/Overview'
 import Matches from './pages/Matches'
 import NewMatch from './pages/NewMatch'
@@ -104,7 +104,7 @@ function Wickets() {
 function Private({ children, admin }: { children: ReactNode; admin?: boolean }) {
   const { user, ready } = useAuth()
   const loc = useLocation()
-  if (!ready) return <div className="empty">Loading…</div>
+  if (!ready) return <Loader />
   if (!user) return <Navigate to={loc.pathname === '/' && !loc.search ? '/login' : `/login?next=${encodeURIComponent(loc.pathname + loc.search)}`} replace />
   if (admin && !user.admin) return <div className="page"><div className="card empty">Only an admin can do this. Ask your admin.</div></div>
   return <>{children}</>

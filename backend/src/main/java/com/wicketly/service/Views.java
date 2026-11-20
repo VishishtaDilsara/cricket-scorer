@@ -31,8 +31,14 @@ public final class Views {
 
     public record MatchView(MatchSummary summary, Rules rules, TeamFull teamA, TeamFull teamB, UUID tossWinnerId,
                             String tossDecision, boolean listed, boolean practice, String overrideReason, UUID playerOfMatchId,
-                            boolean canScore, boolean canManage, List<InningsView> innings, List<TeamRoles> roles) {}
+                            boolean canScore, boolean canManage, List<InningsView> innings, List<TeamRoles> roles,
+                            List<TeamLineup> lineups) {}
+
+    /** A side's playing XI for this match. */
+    public record TeamLineup(UUID teamId, List<UUID> playerIds) {}
 
     /** Captain, vice-captain and wicket-keeper of one side for this match. Any of them may still be null. */
-    public record TeamRoles(UUID teamId, UUID captainId, UUID viceCaptainId, UUID keeperId) {}
+    public record TeamRoles(UUID teamId, UUID captainId, UUID viceCaptainId, UUID keeperId, boolean fromTeam, Usual usual) {}
+    /** The team's usual roles (not limited to the playing XI), so a client can recompute them as the XI changes. */
+    public record Usual(UUID captainId, UUID viceCaptainId, UUID keeperId) {}
 }

@@ -3,7 +3,7 @@ import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { errorText, useApi } from '../api'
 import { useAuth } from '../auth'
 import type { MatchSummary, Player, TeamRef, TournamentCard } from '../types'
-import { Badge, Field, MatchList, SignInPrompt, Status } from '../ui'
+import { Badge, BusyLabel, Field, MatchList, SignInPrompt, Status } from '../ui'
 import toast from 'react-hot-toast'
 
 export function Login() {
@@ -41,7 +41,7 @@ export function Login() {
         <Field label={mode === 'up' ? 'Password (8 characters or more)' : 'Password'}>
           <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={mode === 'in' ? 'current-password' : 'new-password'} required minLength={mode === 'up' ? 8 : 1} />
         </Field>
-        <button className="btn primary block" disabled={busy}>{mode === 'in' ? 'Sign in' : 'Create account'}</button>
+        <button className="btn primary block" disabled={busy} aria-busy={busy}><BusyLabel busy={busy} text={mode === 'in' ? 'Signing in…' : 'Creating account…'}>{mode === 'in' ? 'Sign in' : 'Create account'}</BusyLabel></button>
         <button type="button" className="btn ghost block" onClick={() => { setMode(mode === 'in' ? 'up' : 'in') }}>
           {mode === 'in' ? 'New admin? Create an account' : 'Already have an account? Sign in'}
         </button>

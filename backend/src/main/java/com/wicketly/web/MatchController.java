@@ -81,6 +81,11 @@ public class MatchController {
         return Map.of("mine", scoring.claim(id, Me.of(jwt), device, force));
     }
 
+    @PutMapping("/{id}/lineup")
+    void lineup(@PathVariable UUID id, @RequestBody MatchService.LineupReq r, @AuthenticationPrincipal Jwt jwt) {
+        matchService.setLineup(id, r, Me.of(jwt));
+    }
+
     @PutMapping("/{id}/roles")
     void roles(@PathVariable UUID id, @RequestBody MatchService.RolesReq r, @AuthenticationPrincipal Jwt jwt) {
         matchService.setRoles(id, r, Me.of(jwt));

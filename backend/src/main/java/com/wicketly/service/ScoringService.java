@@ -7,6 +7,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -60,6 +61,14 @@ public class ScoringService {
         return m;
     }
 
+    /** Batters must be in the batting side's playing XI and the bowler in the fielding side's (when an XI was picked). */
+    private void checkXi(Match m, Innings i, UUID striker, UUID nonStriker, UUID bowler) {
+        Set<UUID> bat = matchService.lineup(m.id, i.battingTeamId), bowl = matchService.lineup(m.id, i.bowlingTeamId);
+        if (bat != null && ((striker != null && !bat.contains(striker)) || (nonStriker != null && !bat.contains(nonStriker))))
+            throw Api.bad("That batter is not in the playing XI");
+        if (bowl != null && bowler != null && !bowl.contains(bowler)) throw Api.bad("That bowler is not in the playing XI");
+    }
+
     private Innings innings(Match m, int no) {
         return inningsRepo.findByMatchIdAndInningsNo(m.id, no).orElseThrow(() -> Api.notFound("Innings"));
     }
@@ -68,12 +77,18 @@ public class ScoringService {
         Match m = scorable(matchId, me, device);
         if (!m.state.equals("SCHEDULED")) return;
         if (m.teamAId == null || m.teamBId == null) throw Api.conflict("Both teams must be known before the match starts");
-        if (m.teamACaptainId == null || m.teamBCaptainId == null || m.teamAKeeperId == null || m.teamBKeeperId == null)
+        for (UUID team : List.of(m.teamAId, m.teamBId)) {
+            Set<UUID> xi = matchService.ensureLineup(m, team);
+            if (xi == null || xi.size() != m.playersPerSide)
+                throw Api.bad("Pick the playing XI (" + m.playersPerSide + " players) for both teams before the toss");
+        }
+        if (matchService.roles(m).stream().anyMatch(x -> x.captainId() == null || x.keeperId() == null))
             throw Api.bad("Choose a captain and a wicket-keeper for both teams before the toss");
         if (r.tossWinnerId() == null || !(r.tossWinnerId().equals(m.teamAId) || r.tossWinnerId().equals(m.teamBId)))
             throw Api.bad("Toss winner must be one of the two teams");
         boolean bat = "BAT".equals(r.decision());
         if (!bat && !"BOWL".equals(r.decision())) throw Api.bad("Toss decision must be BAT or BOWL");
+        matchService.fixRoles(m);
         m.tossWinnerId = r.tossWinnerId();
         m.tossDecision = r.decision();
         UUID other = m.teamAId.equals(r.tossWinnerId()) ? m.teamBId : m.teamAId;
@@ -108,6 +123,7 @@ public class ScoringService {
         Match m = scorable(matchId, me, device);
         Innings i = innings(m, no);
         if (r.strikerId() != null && r.strikerId().equals(r.nonStrikerId())) throw Api.bad("Striker and non-striker must differ");
+        checkXi(m, i, r.strikerId(), r.nonStrikerId(), r.bowlerId());
         i.strikerId = r.strikerId();
         i.nonStrikerId = r.nonStrikerId();
         i.bowlerId = r.bowlerId();
@@ -127,6 +143,7 @@ public class ScoringService {
         b.nonStrikerId = r.nonStrikerId();
         b.bowlerId = r.bowlerId();
         copy(b, r);
+        checkXi(m, i, b.strikerId, b.nonStrikerId, b.bowlerId);
         ScoringEngine.validate(MatchService.event(b), MatchService.replay(m, i, list).freeHitNext);
         list.add(b);
         balls.save(b);

@@ -2,6 +2,7 @@
 // batting and bowling cards, extras, fall of wickets, partnerships and an over-by-over log.
 // jsPDF is loaded only when someone downloads a report, so it stays out of the main bundle.
 import type { InningsView, MatchView } from './types'
+import { playingXi } from './ui'
 
 export type ReportPom = { name: string; team: string | null; line: string; auto: boolean } | null
 
@@ -65,9 +66,9 @@ export async function downloadMatchReport(v: MatchView, pom: ReportPom) {
   text(`Key: (c) captain, (vc) vice-captain, (wk) wicket-keeper.  Rules: ${v.rules.overs} overs a side, ${v.rules.playersPerSide} players, ${bpo} balls an over, up to ${v.rules.maxOversPerBowler} ${v.rules.maxOversPerBowler === 1 ? "over" : "overs"} per bowler`, 9, muted, false, 12)
 
   // ---------- squads ----------
-  const squads = [v.teamA, v.teamB].filter((t): t is NonNullable<typeof t> => !!t && t.players.length > 0)
+  const squads = [v.teamA, v.teamB].filter((t): t is NonNullable<typeof t> => !!t).map((t) => ({ ...t, players: playingXi(v, t) })).filter((t) => t.players.length > 0)
   if (squads.length) {
-    text('Squads', 10.5, ink, true, 2)
+    text((v.lineups ?? []).length ? 'Playing XI' : 'Squads', 10.5, ink, true, 2)
     for (const t of squads) text(`${t.name}: ${t.players.map((p) => p.name + tag(p.id)).join(', ')}`, 9, ink, false, 4)
     y += 8
   }
@@ -93,7 +94,7 @@ export async function downloadMatchReport(v: MatchView, pom: ReportPom) {
         ['Total', `${st.wickets} wickets, ${st.oversText} overs`, st.runs, '', '', '', ''],
       ] })
 
-    const squad = (v.teamA?.id === inn.battingTeamId ? v.teamA : v.teamB)?.players ?? []
+    const squad = playingXi(v, (v.teamA?.id === inn.battingTeamId ? v.teamA : v.teamB) ?? null)
     const dnb = squad.filter((p) => !st.batters.some((b) => b.playerId === p.id)).map((p) => p.name)
     if (dnb.length) text(`Did not bat: ${dnb.join(', ')}`, 9, muted, false, 10)
 

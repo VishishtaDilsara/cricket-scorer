@@ -25,7 +25,13 @@ public class TournamentService {
     public record GroupTable(String group, boolean complete, List<Row> rows) {}
     public record Adjustment(UUID id, UUID teamId, String teamName, int pointsDelta, String reason, Instant createdAt) {}
     public record TournamentView(Tournament tournament, boolean canManage, List<TeamEntry> teams, List<MatchSummary> fixtures,
-                                 List<GroupTable> tables, List<Adjustment> adjustments) {}
+                                 List<GroupTable> tables, List<Adjustment> adjustments, Summary summary) {}
+    /** A player award: who, for which team, the headline figure and a supporting line. */
+    public record Award(UUID playerId, String name, TeamRef team, String headline, String detail) {}
+    /** The end-of-tournament summary. Present only once the tournament is decided. */
+    public record Summary(TeamRef champion, TeamRef runnerUp, String runnerUpNote, TeamRef secondRunnerUp, String secondRunnerUpNote,
+                          Award playerOfSeries, Award bestBatter, Award bestBowler,
+                          int matchesPlayed, int fours, int sixes, String highestScore, String bestBowling) {}
     public record TournamentCard(UUID id, String name, String structure, String status, LocalDate startDate, LocalDate endDate,
                                  String venue, int teams) {}
 
@@ -41,10 +47,13 @@ public class TournamentService {
     private final AuditRepo audit;
     private final MatchService matchService;
     private final Access access;
+    private final StatsService stats;
+    private final TeamPlayerRepo teamPlayers;
 
     public TournamentService(TournamentRepo tournaments, TournamentTeamRepo tts, TeamRepo teams, MatchRepo matches,
                              InningsRepo inningsRepo, TableAdjustmentRepo adjustments, AuditRepo audit,
-                             MatchService matchService, Access access) {
+                             MatchService matchService, Access access, StatsService stats, TeamPlayerRepo teamPlayers) {
+        this.stats = stats; this.teamPlayers = teamPlayers;
         this.tournaments = tournaments; this.tts = tts; this.teams = teams; this.matches = matches;
         this.inningsRepo = inningsRepo; this.adjustments = adjustments; this.audit = audit;
         this.matchService = matchService; this.access = access;
@@ -83,7 +92,93 @@ public class TournamentService {
         List<Adjustment> adj = adjustments.findByTournamentIdOrderByCreatedAt(id).stream()
                 .map(a -> new Adjustment(a.id, a.teamId, teamMap.containsKey(a.teamId) ? teamMap.get(a.teamId).name : "", a.pointsDelta, a.reason, a.createdAt))
                 .toList();
-        return new TournamentView(t, access.canManage(me, t), teamViews, matchService.summaries(ms), tables(t, entries, ms, teamMap), adj);
+        List<GroupTable> tables = tables(t, entries, ms, teamMap);
+        return new TournamentView(t, access.canManage(me, t), teamViews, matchService.summaries(ms), tables, adj, summary(t, ms, tables, teamMap));
+    }
+
+    // ---------- end-of-tournament summary ----------
+
+    private Summary summary(Tournament t, List<Match> ms, List<GroupTable> tables, Map<UUID, Team> teamMap) {
+        if (ms.isEmpty()) return null;
+        Match fin = ms.stream().filter(m -> "F".equals(m.code)).findFirst().orElse(null);
+        UUID champ, runner, third = null;
+        String thirdNote = null;
+        if (fin != null) {
+            if (!"COMPLETED".equals(fin.state) || fin.winnerId == null) return null;
+            champ = fin.winnerId;
+            runner = fin.winnerId.equals(fin.teamAId) ? fin.teamBId : fin.teamAId;
+            List<UUID> sfLosers = ms.stream().filter(m -> m.code != null && m.code.startsWith("SF") && m.winnerId != null)
+                    .map(m -> m.winnerId.equals(m.teamAId) ? m.teamBId : m.teamAId).filter(Objects::nonNull).toList();
+            if (sfLosers.size() == 1) { third = sfLosers.get(0); thirdNote = "Losing semi-finalist"; }
+            else if (sfLosers.size() > 1) {
+                Map<UUID, double[]> rank = standing(tables, ms);
+                third = sfLosers.stream().min(Comparator.comparingDouble((UUID id) -> rank.getOrDefault(id, new double[] {99, 0, 0})[0])
+                        .thenComparingDouble(id -> -rank.getOrDefault(id, new double[] {99, 0, 0})[1])
+                        .thenComparingDouble(id -> -rank.getOrDefault(id, new double[] {99, 0, 0})[2])).orElse(null);
+                thirdNote = tables.isEmpty() ? "Better net run rate of the two losing semi-finalists"
+                        : "Better group-stage record of the two losing semi-finalists";
+            }
+        } else {
+            // A league with no knockouts is decided once every match is done; places come from the table.
+            if (!ms.stream().allMatch(m -> DONE.contains(m.state)) || tables.isEmpty()) return null;
+            List<Row> order = tables.stream().flatMap(g -> g.rows().stream())
+                    .sorted(Comparator.comparingInt((Row r) -> -r.points()).thenComparingInt(r -> -r.won()).thenComparingDouble(r -> -r.nrr())).toList();
+            if (order.isEmpty()) return null;
+            champ = order.get(0).teamId();
+            runner = order.size() > 1 ? order.get(1).teamId() : null;
+            third = order.size() > 2 ? order.get(2).teamId() : null;
+            thirdNote = third == null ? null : "Third on the points table";
+        }
+
+        List<Match> played = ms.stream().filter(m -> "COMPLETED".equals(m.state)).toList();
+        Collection<StatsService.Agg> all = stats.aggregate(played).values();
+        Set<UUID> tournamentTeams = teamMap.keySet();
+        java.util.function.Function<UUID, TeamRef> teamOf = pid -> teamPlayers.findByPlayerId(pid).stream()
+                .map(tp -> tp.teamId).filter(tournamentTeams::contains).findFirst().map(id -> MatchService.ref(teamMap.get(id))).orElse(null);
+        StatsService.Agg mvp = all.stream().filter(a -> a.mvp() > 0).max(Comparator.comparingInt(StatsService.Agg::mvp).thenComparingInt(a -> a.runs)).orElse(null);
+        StatsService.Agg bat = all.stream().filter(a -> a.runs > 0)
+                .max(Comparator.comparingInt((StatsService.Agg a) -> a.runs).thenComparingDouble(a -> a.getStrikeRate() == null ? 0 : a.getStrikeRate())).orElse(null);
+        StatsService.Agg bowl = all.stream().filter(a -> a.wickets > 0).min(StatsService.Agg.BOWLING).orElse(null);
+        Award pos = mvp == null ? null : new Award(mvp.playerId, mvp.name, teamOf.apply(mvp.playerId), mvp.mvp() + " impact points",
+                mvp.runs + " runs · " + mvp.wickets + " wickets · " + (mvp.catches + mvp.runOuts + mvp.stumpings) + " dismissals in the field");
+        Award bb = bat == null ? null : new Award(bat.playerId, bat.name, teamOf.apply(bat.playerId), bat.runs + " runs",
+                bat.innings + " innings · highest " + bat.getHighestScore() + " · SR " + fmt(bat.getStrikeRate()) + (bat.getAverage() != null ? " · avg " + fmt(bat.getAverage()) : ""));
+        Award bw = bowl == null ? null : new Award(bowl.playerId, bowl.name, teamOf.apply(bowl.playerId), bowl.wickets + (bowl.wickets == 1 ? " wicket" : " wickets"),
+                "Best " + bowl.getBest() + " · economy " + fmt(bowl.getEconomy()) + (bowl.getBowlingAverage() != null ? " · avg " + fmt(bowl.getBowlingAverage()) : ""));
+        StatsService.Agg hs = all.stream().filter(a -> a.innings > 0).max(Comparator.comparingInt((StatsService.Agg a) -> a.highest)).orElse(null);
+        StatsService.Agg bf = all.stream().filter(a -> a.bestWickets >= 0).min(StatsService.Agg.BEST_FIGURES).orElse(null);
+        return new Summary(ref(teamMap, champ), ref(teamMap, runner), fin != null ? "Lost the final" : "Second on the points table", ref(teamMap, third), thirdNote, pos, bb, bw, played.size(),
+                all.stream().mapToInt(a -> a.fours).sum(), all.stream().mapToInt(a -> a.sixes).sum(),
+                hs == null ? null : hs.getHighestScore() + " by " + hs.name, bf == null || bf.bestWickets <= 0 ? null : bf.getBest() + " by " + bf.name);
+    }
+
+    private static TeamRef ref(Map<UUID, Team> teamMap, UUID id) {
+        return id == null ? null : MatchService.ref(teamMap.get(id));
+    }
+
+    private static String fmt(Double d) { return d == null ? "-" : String.format("%.2f", d); }
+
+    /** For ranking teams knocked out in the same round: [group position, points, net run rate]. */
+    private Map<UUID, double[]> standing(List<GroupTable> tables, List<Match> ms) {
+        Map<UUID, double[]> out = new HashMap<>();
+        for (GroupTable g : tables)
+            for (int k = 0; k < g.rows().size(); k++) { Row r = g.rows().get(k); out.put(r.teamId(), new double[] {k, r.points(), r.nrr()}); }
+        if (!out.isEmpty()) return out;
+        // Straight knockout: net run rate over every completed match in the tournament.
+        Map<UUID, double[]> acc = new HashMap<>(); // runsFor, oversFaced, runsAgainst, oversBowled
+        Map<UUID, List<Innings>> inns = inningsRepo.findByMatchIdInOrderByInningsNo(ms.stream().map(m -> m.id).toList())
+                .stream().collect(Collectors.groupingBy(i -> i.matchId));
+        for (Match m : ms) {
+            if (!"COMPLETED".equals(m.state)) continue;
+            for (Innings i : inns.getOrDefault(m.id, List.of())) {
+                double ov = i.legalBalls / (double) m.ballsPerOver;
+                acc.computeIfAbsent(i.battingTeamId, k -> new double[4]); acc.computeIfAbsent(i.bowlingTeamId, k -> new double[4]);
+                acc.get(i.battingTeamId)[0] += i.runs; acc.get(i.battingTeamId)[1] += ov;
+                acc.get(i.bowlingTeamId)[2] += i.runs; acc.get(i.bowlingTeamId)[3] += ov;
+            }
+        }
+        acc.forEach((id, a) -> out.put(id, new double[] {0, 0, (a[1] > 0 ? a[0] / a[1] : 0) - (a[3] > 0 ? a[2] / a[3] : 0)}));
+        return out;
     }
 
     private Map<UUID, Team> teamMap(List<TournamentTeam> entries) {

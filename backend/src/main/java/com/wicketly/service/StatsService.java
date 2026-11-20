@@ -21,7 +21,7 @@ public class StatsService {
         @com.fasterxml.jackson.annotation.JsonIgnore public Set<UUID> matchIds = new HashSet<>();
         public int innings, notOuts, runs, balls, highest, thirties, fifties, hundreds, fours, sixes;
         public boolean highestNotOut;
-        public int bowlBalls, maidens, conceded, wickets, bestWickets = -1, bestRuns;
+        public int bowlBalls, maidens, conceded, wickets, bestWickets = -1, bestRuns, bestBalls;
         public double bowlOvers;
         public int catches, runOuts, stumpings;
 
@@ -31,6 +31,13 @@ public class StatsService {
         public Double getEconomy() { return bowlOvers > 0 ? round(conceded / bowlOvers) : null; }
         public Double getBowlingAverage() { return wickets > 0 ? round(conceded / (double) wickets) : null; }
         public Double getBowlingStrikeRate() { return wickets > 0 ? round(bowlBalls / (double) wickets) : null; }
+        /** Bowling rank: more wickets first; level on wickets, the lower economy; then fewer runs conceded. */
+        public static final Comparator<Agg> BOWLING = Comparator.comparingInt((Agg a) -> -a.wickets)
+                .thenComparingDouble(a -> a.getEconomy() == null ? Double.MAX_VALUE : a.getEconomy())
+                .thenComparingInt(a -> a.conceded);
+        /** Best figures in one innings: more wickets, then fewer runs, then the lower economy (more balls for those runs). */
+        public static final Comparator<Agg> BEST_FIGURES = Comparator.comparingInt((Agg a) -> -a.bestWickets)
+                .thenComparingInt(a -> a.bestRuns).thenComparingInt(a -> -a.bestBalls);
         public String getBest() { return bestWickets < 0 ? null : bestWickets + "/" + bestRuns; }
         public String getHighestScore() { return innings == 0 ? null : highest + (highestNotOut ? "*" : ""); }
         public int mvp() { return runs + 20 * wickets + 10 * (catches + runOuts + stumpings); }
@@ -140,7 +147,9 @@ public class StatsService {
                 a.matchIds.add(m.id);
                 a.bowlBalls += b.balls; a.bowlOvers += b.balls / (double) m.ballsPerOver;
                 a.maidens += b.maidens; a.conceded += b.runs; a.wickets += b.wickets;
-                if (b.wickets > a.bestWickets || (b.wickets == a.bestWickets && b.runs < a.bestRuns)) { a.bestWickets = b.wickets; a.bestRuns = b.runs; }
+                if (b.wickets > a.bestWickets || (b.wickets == a.bestWickets && (b.runs < a.bestRuns || (b.runs == a.bestRuns && b.balls > a.bestBalls)))) {
+                    a.bestWickets = b.wickets; a.bestRuns = b.runs; a.bestBalls = b.balls;
+                }
             }
         }
         players.findAllById(out.keySet()).forEach(p -> out.get(p.id).name = p.name);
@@ -167,9 +176,9 @@ public class StatsService {
         Collection<Agg> all = aggregate(ms).values();
         return List.of(
             board("runs", "Most runs", all, a -> a.runs > 0, Comparator.comparingInt((Agg a) -> -a.runs), a -> String.valueOf(a.runs), a -> a.innings + " inns · SR " + fmt(a.getStrikeRate())),
-            board("wickets", "Most wickets", all, a -> a.wickets > 0, Comparator.comparingInt((Agg a) -> -a.wickets).thenComparingInt(a -> a.conceded), a -> String.valueOf(a.wickets), a -> "Econ " + fmt(a.getEconomy()) + " · Best " + a.getBest()),
+            board("wickets", "Most wickets", all, a -> a.wickets > 0, Agg.BOWLING, a -> String.valueOf(a.wickets), a -> "Econ " + fmt(a.getEconomy()) + " · Best " + a.getBest()),
             board("strikeRate", "Best strike rate", all, a -> a.balls >= 10, Comparator.comparingDouble((Agg a) -> -a.getStrikeRate()), a -> fmt(a.getStrikeRate()), a -> a.runs + " runs off " + a.balls),
-            board("economy", "Best economy", all, a -> a.bowlBalls >= 12, Comparator.comparingDouble((Agg a) -> a.getEconomy()), a -> fmt(a.getEconomy()), a -> a.wickets + " wkts · " + a.bowlBalls + " balls"),
+            board("economy", "Best economy", all, a -> a.bowlBalls >= 12, Comparator.comparingDouble((Agg a) -> a.getEconomy()).thenComparingInt(a -> -a.wickets), a -> fmt(a.getEconomy()), a -> a.wickets + " wkts · " + a.bowlBalls + " balls"),
             board("sixes", "Most sixes", all, a -> a.sixes > 0, Comparator.comparingInt((Agg a) -> -a.sixes), a -> String.valueOf(a.sixes), a -> a.fours + " fours"),
             board("catches", "Most catches", all, a -> a.catches > 0, Comparator.comparingInt((Agg a) -> -a.catches), a -> String.valueOf(a.catches), a -> a.stumpings + " st · " + a.runOuts + " run outs"),
             board("mvp", "Most valuable player", all, a -> a.mvp() > 0, Comparator.comparingInt((Agg a) -> -a.mvp()), a -> String.valueOf(a.mvp()), a -> a.runs + " runs · " + a.wickets + " wkts · " + a.catches + " ct"));

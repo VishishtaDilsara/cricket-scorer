@@ -225,6 +225,16 @@ export class ScorerStore {
     if (inn?.strikerId && inn.nonStrikerId) this.setPlayers({ strikerId: inn.nonStrikerId, nonStrikerId: inn.strikerId })
   }
 
+  /** One side's playing XI. Roles held by players left out are cleared, as the server does. */
+  setLineup(teamId: string, playerIds: string[]) {
+    const doc = this.doc!
+    doc.lineups = [...(doc.lineups ?? []).filter((x) => x.teamId !== teamId), { teamId, playerIds }]
+    const r = doc.roles?.find((x) => x.teamId === teamId)
+    // Roles chosen for this match lose anyone left out; the team's usual roles are re-derived from the XI on screen.
+    if (r && !r.fromTeam) for (const k of ['captainId', 'viceCaptainId', 'keeperId'] as const) if (r[k] && !playerIds.includes(r[k]!)) r[k] = null
+    this.push({ method: 'PUT', path: `/matches/${this.matchId}/lineup`, body: { teamId, playerIds } })
+  }
+
   /** Captain, vice-captain (optional) and wicket-keeper of one side. */
   setRoles(teamId: string, r: { captainId: string | null; viceCaptainId: string | null; keeperId: string | null }) {
     const doc = this.doc!

@@ -6,9 +6,8 @@ import { useAuth } from '../auth'
 import type { Career, MatchSummary, Player, PlayerProfile, TeamRef } from '../types'
 import { BarList, ColumnChart } from '../charts'
 import { DISMISSAL_LABEL } from '../engine'
-import { Badge, Field, MatchList, Modal, ShareButton, SignInPrompt, Status } from '../ui'
+import { AsyncButton, Badge, BusyLabel, Field, MatchList, Modal, ShareButton, SignInPrompt, Status } from '../ui'
 import toast from 'react-hot-toast'
-import { confirm } from '../confirm'
 
 export function Teams() {
   const { user, ready } = useAuth()
@@ -18,12 +17,14 @@ export function Teams() {
   const [name, setName] = useState('')
   const [shortName, setShort] = useState('')
   const [homeGround, setGround] = useState('')
+  const [busy, setBusy] = useState(false)
   const create = async (e: FormEvent) => {
     e.preventDefault()
+    setBusy(true)
     try {
       const { id } = await api<{ id: string }>('POST', '/teams', { name, shortName: shortName || null, homeGround: homeGround || null })
       nav(`/teams/${id}`)
-    } catch (x) { toast.error(errorText(x)) }
+    } catch (x) { toast.error(errorText(x)); setBusy(false) }
   }
   const grid = (list: TeamRef[]) => (
     <div className="grid thirds">
@@ -42,7 +43,7 @@ export function Teams() {
             <Field label="Team name"><input className="input" value={name} onChange={(e) => setName(e.target.value)} required autoFocus /></Field>
             <Field label="Short name (up to 4 letters)"><input className="input" value={shortName} maxLength={4} onChange={(e) => setShort(e.target.value)} /></Field>
             <Field label="Home ground"><input className="input" value={homeGround} onChange={(e) => setGround(e.target.value)} /></Field>
-            <button className="btn primary">Create team</button>
+            <button className="btn primary" disabled={busy} aria-busy={busy}><BusyLabel busy={busy} text="Creating…">Create team</BusyLabel></button>
           </form>
         </Modal>
       )}
@@ -51,7 +52,7 @@ export function Teams() {
 }
 
 type TeamView = {
-  team: TeamRef & { homeGround: string | null }; canEdit: boolean; players: Player[]
+  team: TeamRef & { homeGround: string | null; captainId: string | null; viceCaptainId: string | null; keeperId: string | null }; canEdit: boolean; players: Player[]
   record: { played: number; won: number; lost: number; tied: number; noResult: number }; matches: MatchSummary[]
 }
 
@@ -62,18 +63,31 @@ export function TeamPage() {
   const [role, setRole] = useState('')
   const [hand, setHand] = useState('')
   const [style, setStyle] = useState('')
+  const [adding, setAdding] = useState(false)
+  const [savingRole, setSavingRole] = useState(false)
   if (!data) return <div className="page"><Status loading={loading} error={error} /></div>
   const add = async (e: FormEvent) => {
     e.preventDefault()
+    if (adding) return
+    setAdding(true)
     try {
       await api('POST', `/teams/${id}/players`, { name, playerRole: role || null, battingHand: hand || null, bowlingStyle: style || null })
       toast.success(`${name.trim()} added`); setName(''); await reload()
-    } catch (x) { toast.error(errorText(x)) }
+    } catch (x) { toast.error(errorText(x)) } finally { setAdding(false) }
   }
-  const remove = async (pid: string, name: string) => {
-    if (!(await confirm({ title: `Remove ${name} from the team?`, message: 'Their past scores are kept. You can add them back later.', yes: 'Yes, remove', danger: true }))) return
+  const remove = async (pid: string) => {
     try { await api('DELETE', `/teams/${id}/players/${pid}`); await reload() } catch (x) { toast.error(errorText(x)) } }
   const r = data.record
+  const t = data.team
+  type RoleKey = 'captainId' | 'viceCaptainId' | 'keeperId'
+  const setTeamRole = async (k: RoleKey, pid: string) => {
+    const next = { captainId: t.captainId, viceCaptainId: t.viceCaptainId, keeperId: t.keeperId, [k]: t[k] === pid ? null : pid }
+    if (k === 'captainId' && next.viceCaptainId === pid) next.viceCaptainId = null
+    if (k === 'viceCaptainId' && next.captainId === pid) next.captainId = null
+    setSavingRole(true)
+    try { await api('PUT', `/teams/${id}/roles`, next); await reload() } catch (x) { toast.error(errorText(x)) } finally { setSavingRole(false) }
+  }
+  const roleKeys: [RoleKey, string, string][] = [['captainId', 'C', 'Captain'], ['viceCaptainId', 'VC', 'Vice-captain'], ['keeperId', 'WK', 'Wicket-keeper']]
   return (
     <div className="page">
       <div className="page-head">
@@ -88,11 +102,19 @@ export function TeamPage() {
       <div className="grid halves">
         <div className="card">
           <div className="card-head"><h2>Squad</h2><span className="muted small">{data.players.length} players</span></div>
+          {data.canEdit && data.players.length > 0 && <div className="small muted" style={{ marginBottom: 8 }}>Tap C, VC or WK to set the usual captain, vice-captain (optional) and wicket-keeper. Every new match starts with them, and they can be swapped before a toss.</div>}
           {data.players.map((p) => (
             <div key={p.id} className="row between" style={{ padding: '8px 0', borderTop: '1px solid var(--line)' }}>
               <Link to={`/players/${p.id}`} className="grow"><div className="strong" style={{ fontWeight: 700 }}>{p.name}</div>
                 <div className="small muted">{[p.playerRole, p.battingHand && `${p.battingHand} bat`, p.bowlingStyle].filter(Boolean).join(' · ') || 'Name only'}</div></Link>
-              {data.canEdit && <button className="btn sm danger" onClick={() => remove(p.id, p.name)}>Remove</button>}
+              <span className="row" style={{ gap: 6 }}>
+                {data.canEdit ? roleKeys.map(([k, short, label]) => (
+                  <button key={k} type="button" disabled={savingRole} aria-busy={savingRole} className={`role-dot sm ${t[k] === p.id ? 'on' : ''}`} aria-pressed={t[k] === p.id}
+                    aria-label={`${label}: ${p.name}`} title={label} onClick={() => setTeamRole(k, p.id)}>{short}</button>
+                )) : roleKeys.filter(([k]) => t[k] === p.id).map(([k, short]) => <span key={k} className={`pill ${k === 'keeperId' ? 'good' : 'brand'}`}>{short}</span>)}
+                {data.canEdit && <AsyncButton className="btn sm danger" busyText="Removing…" onClick={() => remove(p.id)}
+                  confirmFirst={{ title: `Remove ${p.name} from the team?`, message: 'Their past scores are kept. You can add them back later.', yes: 'Yes, remove', danger: true }}>Remove</AsyncButton>}
+              </span>
             </div>
           ))}
           {!data.players.length && <div className="muted">No players yet.</div>}
@@ -106,7 +128,7 @@ export function TeamPage() {
                   <option value="">Batting hand…</option><option>Right</option><option>Left</option></select>
               </div>
               <input className="input" value={style} onChange={(e) => setStyle(e.target.value)} placeholder="Bowling style, e.g. Right-arm off spin" aria-label="Bowling style" />
-                <button className="btn"><Plus size={16} />Add player</button>
+                <button className="btn" disabled={adding} aria-busy={adding}><BusyLabel busy={adding} text="Adding…"><Plus size={16} />Add player</BusyLabel></button>
             </form>
           )}
         </div>
@@ -167,7 +189,7 @@ function PlayerPdfButton({ data }: { data: PlayerView }) {
       setBusy(true)
       try { const { downloadPlayerReport } = await import('../playerReport'); await downloadPlayerReport(data); toast.success('Report downloaded') }
       catch (e) { toast.error(`Could not create the report: ${errorText(e)}`) } finally { setBusy(false) }
-    }}><FileDown size={16} />{busy ? 'Preparing…' : 'PDF report'}</button>
+    }}><BusyLabel busy={busy} text="Preparing…"><FileDown size={16} />PDF report</BusyLabel></button>
   )
 }
 

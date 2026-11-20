@@ -13,5 +13,7 @@ public class Team {
     @Id public UUID id = UUID.randomUUID();
     public String name, shortName, homeGround;
     public UUID ownerId;
+    /** Usual captain, vice-captain (optional) and wicket-keeper; a match can change them. */
+    public UUID captainId, viceCaptainId, keeperId;
     public Instant createdAt = Instant.now();
 }

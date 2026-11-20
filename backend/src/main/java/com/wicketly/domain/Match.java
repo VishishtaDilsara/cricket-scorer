@@ -35,6 +35,8 @@ public class Match {
     @Column(name = "team_b_captain_id") public UUID teamBCaptainId;
     @Column(name = "team_b_vice_captain_id") public UUID teamBViceCaptainId;
     @Column(name = "team_b_keeper_id") public UUID teamBKeeperId;
+    @Column(name = "team_a_roles_set") public boolean teamARolesSet;
+    @Column(name = "team_b_roles_set") public boolean teamBRolesSet;
     public boolean listed = true, practice;
     public UUID createdBy, ownerId;
     public String lockDevice;

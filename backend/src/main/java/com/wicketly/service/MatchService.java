@@ -30,10 +30,12 @@ public class MatchService {
     private final TournamentTeamRepo tournamentTeams;
     private final Access access;
     private final LiveHub live;
+    private final MatchPlayerRepo lineups;
 
     public MatchService(MatchRepo matches, InningsRepo inningsRepo, BallRepo balls, TeamRepo teams, PlayerRepo players,
                         TournamentRepo tournaments, TournamentTeamRepo tournamentTeams,
-                        Access access, LiveHub live) {
+                        Access access, LiveHub live, MatchPlayerRepo lineups) {
+        this.lineups = lineups;
         this.matches = matches; this.inningsRepo = inningsRepo; this.balls = balls; this.teams = teams;
         this.players = players; this.tournaments = tournaments; this.tournamentTeams = tournamentTeams;
         this.access = access; this.live = live;
@@ -103,14 +105,88 @@ public class MatchService {
                     i.strikerId, i.nonStrikerId, i.bowlerId, st, raw));
         }
         return new MatchView(summary, rules(m, null), a, b, m.tossWinnerId, m.tossDecision, m.listed, m.practice,
-                m.overrideReason, m.playerOfMatchId, access.canScore(me, m), access.canManage(me, m), views, roles(m));
+                m.overrideReason, m.playerOfMatchId, access.canScore(me, m), access.canManage(me, m), views, roles(m), lineupViews(m));
     }
 
-    private static List<TeamRoles> roles(Match m) {
+    /**
+     * Roles in force for each side: the ones chosen for this match, or else the team's usual captain, vice-captain
+     * and keeper, as long as they are in the playing XI.
+     */
+    public List<TeamRoles> roles(Match m) {
         List<TeamRoles> out = new ArrayList<>();
-        if (m.teamAId != null) out.add(new TeamRoles(m.teamAId, m.teamACaptainId, m.teamAViceCaptainId, m.teamAKeeperId));
-        if (m.teamBId != null) out.add(new TeamRoles(m.teamBId, m.teamBCaptainId, m.teamBViceCaptainId, m.teamBKeeperId));
+        if (m.teamAId != null) out.add(m.teamARolesSet ? new TeamRoles(m.teamAId, m.teamACaptainId, m.teamAViceCaptainId, m.teamAKeeperId, false, null) : defaults(m, m.teamAId));
+        if (m.teamBId != null) out.add(m.teamBRolesSet ? new TeamRoles(m.teamBId, m.teamBCaptainId, m.teamBViceCaptainId, m.teamBKeeperId, false, null) : defaults(m, m.teamBId));
         return out;
+    }
+
+    private TeamRoles defaults(Match m, UUID teamId) {
+        Team t = teams.findById(teamId).orElse(null);
+        if (t == null) return new TeamRoles(teamId, null, null, null, true, null);
+        Set<UUID> xi = lineup(m.id, teamId);
+        java.util.function.Function<UUID, UUID> keep = p -> p != null && (xi == null || xi.contains(p)) ? p : null;
+        return new TeamRoles(teamId, keep.apply(t.captainId), keep.apply(t.viceCaptainId), keep.apply(t.keeperId), true,
+                new Usual(t.captainId, t.viceCaptainId, t.keeperId));
+    }
+
+    /** Writes the roles in force into the match, so later changes to the team's usual roles leave it alone. */
+    public void fixRoles(Match m) {
+        for (TeamRoles r : roles(m)) {
+            if (r.teamId().equals(m.teamAId)) { m.teamACaptainId = r.captainId(); m.teamAViceCaptainId = r.viceCaptainId(); m.teamAKeeperId = r.keeperId(); m.teamARolesSet = true; }
+            else { m.teamBCaptainId = r.captainId(); m.teamBViceCaptainId = r.viceCaptainId(); m.teamBKeeperId = r.keeperId(); m.teamBRolesSet = true; }
+        }
+    }
+
+    private List<TeamLineup> lineupViews(Match m) {
+        Map<UUID, List<UUID>> by = new LinkedHashMap<>();
+        for (MatchPlayer mp : lineups.findByMatchId(m.id)) by.computeIfAbsent(mp.teamId, k -> new ArrayList<>()).add(mp.playerId);
+        return by.entrySet().stream().map(e -> new TeamLineup(e.getKey(), e.getValue())).toList();
+    }
+
+    /** The playing XI of one side, or null when none was picked (older matches: the whole squad may play). */
+    public Set<UUID> lineup(UUID matchId, UUID teamId) {
+        List<MatchPlayer> rows = lineups.findByMatchIdAndTeamId(matchId, teamId);
+        return rows.isEmpty() ? null : rows.stream().map(r -> r.playerId).collect(Collectors.toSet());
+    }
+
+    /** At the toss: a side with no XI picked whose squad is exactly the side's size plays as it is. Returns the XI. */
+    public Set<UUID> ensureLineup(Match m, UUID teamId) {
+        Set<UUID> xi = lineup(m.id, teamId);
+        if (xi != null) return xi;
+        List<Player> squad = players.findByTeam(teamId);
+        if (squad.size() != m.playersPerSide) return null;
+        for (Player p : squad) { MatchPlayer mp = new MatchPlayer(); mp.matchId = m.id; mp.teamId = teamId; mp.playerId = p.id; lineups.save(mp); }
+        return squad.stream().map(p -> p.id).collect(Collectors.toSet());
+    }
+
+    public record LineupReq(UUID teamId, List<UUID> playerIds) {}
+
+    /** Picks one side's playing XI from its squad. Up to players-per-side; locked once the match starts. */
+    public void setLineup(UUID id, LineupReq r, Me me) {
+        Match m = get(id);
+        if (!access.canScore(me, m)) throw Api.forbidden();
+        if (!m.state.equals("SCHEDULED")) throw Api.conflict("The playing XI is locked once the match has started");
+        boolean a = r.teamId() != null && r.teamId().equals(m.teamAId), b = r.teamId() != null && r.teamId().equals(m.teamBId);
+        if (!a && !b) throw Api.bad("That team is not playing in this match");
+        List<UUID> ids = r.playerIds() == null ? List.of() : r.playerIds().stream().distinct().toList();
+        if (ids.size() > m.playersPerSide) throw Api.bad("Pick at most " + m.playersPerSide + " players for this match");
+        Set<UUID> squad = new HashSet<>();
+        players.findByTeam(r.teamId()).forEach(p -> squad.add(p.id));
+        if (!squad.containsAll(ids)) throw Api.bad("Every player in the playing XI must be in the team");
+        lineups.deleteAll(lineups.findByMatchIdAndTeamId(m.id, r.teamId()));
+        lineups.flush();
+        for (UUID pid : ids) { MatchPlayer mp = new MatchPlayer(); mp.matchId = m.id; mp.teamId = r.teamId(); mp.playerId = pid; lineups.save(mp); }
+        // Captain, vice-captain or keeper dropped from the XI lose that role.
+        Set<UUID> in = new HashSet<>(ids);
+        if (a) {
+            if (m.teamACaptainId != null && !in.contains(m.teamACaptainId)) m.teamACaptainId = null;
+            if (m.teamAViceCaptainId != null && !in.contains(m.teamAViceCaptainId)) m.teamAViceCaptainId = null;
+            if (m.teamAKeeperId != null && !in.contains(m.teamAKeeperId)) m.teamAKeeperId = null;
+        } else {
+            if (m.teamBCaptainId != null && !in.contains(m.teamBCaptainId)) m.teamBCaptainId = null;
+            if (m.teamBViceCaptainId != null && !in.contains(m.teamBViceCaptainId)) m.teamBViceCaptainId = null;
+            if (m.teamBKeeperId != null && !in.contains(m.teamBKeeperId)) m.teamBKeeperId = null;
+        }
+        live.publish(m.id);
     }
 
     public record RolesReq(UUID teamId, UUID captainId, UUID viceCaptainId, UUID keeperId) {}
@@ -125,9 +201,12 @@ public class MatchService {
         players.findByTeam(r.teamId()).forEach(p -> squad.add(p.id));
         for (UUID p : java.util.Arrays.asList(r.captainId(), r.viceCaptainId(), r.keeperId()))
             if (p != null && !squad.contains(p)) throw Api.bad("Captain, vice-captain and wicket-keeper must be in the team");
+        Set<UUID> xi = lineup(m.id, r.teamId());
+        if (xi != null) for (UUID p : java.util.Arrays.asList(r.captainId(), r.viceCaptainId(), r.keeperId()))
+            if (p != null && !xi.contains(p)) throw Api.bad("Captain, vice-captain and wicket-keeper must be in the playing XI");
         if (r.captainId() != null && r.captainId().equals(r.viceCaptainId())) throw Api.bad("The captain cannot also be the vice-captain");
-        if (a) { m.teamACaptainId = r.captainId(); m.teamAViceCaptainId = r.viceCaptainId(); m.teamAKeeperId = r.keeperId(); }
-        else { m.teamBCaptainId = r.captainId(); m.teamBViceCaptainId = r.viceCaptainId(); m.teamBKeeperId = r.keeperId(); }
+        if (a) { m.teamACaptainId = r.captainId(); m.teamAViceCaptainId = r.viceCaptainId(); m.teamAKeeperId = r.keeperId(); m.teamARolesSet = true; }
+        else { m.teamBCaptainId = r.captainId(); m.teamBViceCaptainId = r.viceCaptainId(); m.teamBKeeperId = r.keeperId(); m.teamBRolesSet = true; }
         live.publish(m.id);
     }
 

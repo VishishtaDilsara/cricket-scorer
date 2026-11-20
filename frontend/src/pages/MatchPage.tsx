@@ -3,10 +3,9 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Award, FileDown, Pencil, Settings } from 'lucide-react'
 import { api, errorText, streamUrl, useApi } from '../api'
 import type { InningsView, MatchView } from '../types'
-import { Badge, BallChip, Field, Modal, ShareButton, StatePill, Status, fmtDate, roleTags, scoreOf } from '../ui'
+import { AsyncButton, Badge, BallChip, BusyLabel, Field, Modal, ShareButton, StatePill, Status, fmtDate, playingXi, roleTags, scoreOf } from '../ui'
 import { chase } from './Overview'
 import toast from 'react-hot-toast'
-import { confirm } from '../confirm'
 import type { ReportPom } from '../report'
 
 export default function MatchPage() {
@@ -45,7 +44,7 @@ export default function MatchPage() {
               setPdfBusy(true)
               try { const { downloadMatchReport } = await import('../report'); await downloadMatchReport(v, reportPom(v)); toast.success('Report downloaded') }
               catch (e) { toast.error(`Could not create the report: ${errorText(e)}`) } finally { setPdfBusy(false) }
-            }}><FileDown size={16} />{pdfBusy ? 'Preparing…' : 'PDF report'}</button>}
+            }}>{pdfBusy ? <BusyLabel busy text="Preparing…">{null}</BusyLabel> : <><FileDown size={16} />PDF report</>}</button>}
             {v.canManage && <button className="btn" onClick={() => setManage(true)}><Settings size={16} />Manage</button>}
             {v.canScore && m.teamA && m.teamB && <Link to={`/matches/${m.id}/score`} className="btn primary"><Pencil size={16} />{m.state === 'SCHEDULED' ? 'Start scoring' : 'Score'}</Link>}
           </div>
@@ -216,12 +215,13 @@ function reportPom(v: MatchView): ReportPom {
 
 /** Both squads with the captain, vice-captain and wicket-keeper marked. */
 function Squads({ v }: { v: MatchView }) {
-  const teams = [v.teamA, v.teamB].filter((t): t is NonNullable<typeof t> => !!t && t.players.length > 0)
+  const teams = [v.teamA, v.teamB].filter((t): t is NonNullable<typeof t> => !!t).map((t) => ({ ...t, players: playingXi(v, t) })).filter((t) => t.players.length > 0)
   if (!teams.length) return null
+  const xi = (v.lineups ?? []).length > 0
   const order = (r: MatchView['roles'][number] | undefined, id: string) => (r?.captainId === id ? 0 : r?.viceCaptainId === id ? 1 : r?.keeperId === id ? 2 : 3)
   return (
     <div className="card col">
-      <h2>Squads</h2>
+      <h2>{xi ? 'Playing XI' : 'Squads'}</h2>
       <div className="squads">
         {teams.map((t) => {
           const r = v.roles?.find((x) => x.teamId === t.id)
@@ -347,7 +347,7 @@ function Manage({ v, onClose }: { v: MatchView; onClose: () => void }) {
             <Field label="Date and time"><input className="input" type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} /></Field>
             <Field label="Ground"><input className="input" value={ground} onChange={(e) => setGround(e.target.value)} /></Field>
           </div>
-          <button className="btn" onClick={() => run(() => api('PUT', `/matches/${m.id}`, { scheduledAt: when ? new Date(when).toISOString() : null, ground }), 'Saved')}>Save schedule</button>
+          <AsyncButton className="btn" busyText="Saving…" onClick={() => run(() => api('PUT', `/matches/${m.id}`, { scheduledAt: when ? new Date(when).toISOString() : null, ground }), 'Saved')}>Save schedule</AsyncButton>
         </div>
         <div className="col">
           <h3>Set or override the result</h3>
@@ -363,7 +363,7 @@ function Manage({ v, onClose }: { v: MatchView; onClose: () => void }) {
             )}
           </div>
           <Field label="Reason (recorded in the audit log)"><input className="input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Walkover, super over, rain" /></Field>
-          <button className="btn" disabled={!reason.trim()} onClick={() => run(() => api('POST', `/matches/${m.id}/result`, { resultType, winnerId: resultType === 'WIN' ? winner : null, reason }), 'Result recorded')}>Record result</button>
+          <AsyncButton className="btn" busyText="Recording…" disabled={!reason.trim()} onClick={() => run(() => api('POST', `/matches/${m.id}/result`, { resultType, winnerId: resultType === 'WIN' ? winner : null, reason }), 'Result recorded')}>Record result</AsyncButton>
         </div>
         {m.state === 'COMPLETED' && (
           <div className="col">
@@ -376,10 +376,11 @@ function Manage({ v, onClose }: { v: MatchView; onClose: () => void }) {
                 ))}
               </select>
             </Field>
-            <button className="btn" onClick={() => run(() => api('PUT', `/matches/${m.id}/player-of-match`, { playerId: pom || null }), 'Player of the match saved')}>Save player of the match</button>
+            <AsyncButton className="btn" busyText="Saving…" onClick={() => run(() => api('PUT', `/matches/${m.id}/player-of-match`, { playerId: pom || null }), 'Player of the match saved')}>Save player of the match</AsyncButton>
           </div>
         )}
-        <button className="btn danger" onClick={async () => { if (await confirm({ title: 'Delete this match?', message: 'The match and every ball recorded in it are deleted. This cannot be undone.', yes: 'Yes, delete', danger: true })) void run(async () => { await api('DELETE', `/matches/${m.id}`); nav('/matches') }, 'Deleted') }}>Delete match</button>
+        <AsyncButton className="btn danger" busyText="Deleting…" confirmFirst={{ title: 'Delete this match?', message: 'The match and every ball recorded in it are deleted. This cannot be undone.', yes: 'Yes, delete', danger: true }}
+          onClick={() => run(async () => { await api('DELETE', `/matches/${m.id}`); nav('/matches') }, 'Deleted')}>Delete match</AsyncButton>
       </div>
     </Modal>
   )

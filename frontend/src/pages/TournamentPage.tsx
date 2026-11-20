@@ -1,12 +1,12 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, errorText, useApi } from '../api'
-import type { Board, MatchSummary, TeamRef, TournamentView } from '../types'
-import { Badge, Field, MatchRow, ShareButton, Status, fmtDate, scoreOf, sourceLabel } from '../ui'
+import type { Award, Board, MatchSummary, TeamRef, TournamentSummary, TournamentView } from '../types'
+import { Award as AwardIcon, Crown, Medal, Target, Trophy } from 'lucide-react'
+import { AsyncButton, Badge, BusyLabel, Field, MatchRow, ShareButton, Status, fmtDate, scoreOf, sourceLabel } from '../ui'
 import { Standings } from './Overview'
 import { STRUCTURES, statusPill } from './Tournaments'
 import toast from 'react-hot-toast'
-import { confirm } from '../confirm'
 
 export default function TournamentPage() {
   const { id } = useParams()
@@ -16,10 +16,10 @@ export default function TournamentPage() {
   const t = data.tournament
   const knockouts = data.fixtures.filter((f) => f.stage === 'KNOCKOUT')
   const tabs = [
-    ['fixtures', 'Fixtures'], ...(data.tables.length ? [['table', 'Points table']] : []), ...(knockouts.length ? [['bracket', 'Bracket']] : []),
+    ...(data.summary ? [['summary', 'Summary']] : []), ['fixtures', 'Fixtures'], ...(data.tables.length ? [['table', 'Points table']] : []), ...(knockouts.length ? [['bracket', 'Bracket']] : []),
     ['teams', 'Teams'], ['leaders', 'Leaderboards'], ...(data.canManage ? [['manage', 'Organiser']] : []),
   ]
-  const tab = tabs.find(([k]) => k === params.get('tab'))?.[0] ?? 'fixtures'
+  const tab = tabs.find(([k]) => k === params.get('tab'))?.[0] ?? (data.summary ? 'summary' : 'fixtures')
   return (
     <div className="page">
       <div className="page-head">
@@ -28,12 +28,61 @@ export default function TournamentPage() {
         <ShareButton title={t.name} />
       </div>
       <div className="tabs">{tabs.map(([k, label]) => <button key={k} className={`tab ${tab === k ? 'active' : ''}`} onClick={() => setParams({ tab: k })}>{label}</button>)}</div>
+      {tab === 'summary' && data.summary && <SummaryTab s={data.summary} />}
       {tab === 'fixtures' && <Fixtures data={data} />}
       {tab === 'table' && <Table data={data} />}
       {tab === 'bracket' && <Bracket matches={data.fixtures} />}
       {tab === 'teams' && <TeamsTab data={data} />}
       {tab === 'leaders' && <Leaders id={t.id} />}
       {tab === 'manage' && data.canManage && <Organiser data={data} reload={reload} />}
+    </div>
+  )
+}
+
+/** End of the tournament: the podium, the individual awards, and a few headline numbers. */
+function SummaryTab({ s }: { s: TournamentSummary }) {
+  const place = (cls: string, label: string, team: TeamRef | null, note?: string | null, icon?: ReactNode) => team && (
+    <Link to={`/teams/${team.id}`} className={`card podium ${cls}`}>
+      <div className="podium-label">{icon}{label}</div>
+      <div className="row" style={{ gap: 12 }}><Badge team={team} large /><div className="podium-team truncate">{team.name}</div></div>
+      {note && <div className="small muted">{note}</div>}
+    </Link>
+  )
+  const award = (title: string, icon: ReactNode, a: Award | null) => (
+    <div className="card award">
+      <div className="podium-label">{icon}{title}</div>
+      {a ? (
+        <>
+          <Link to={`/players/${a.playerId}`} className="award-name">{a.name}</Link>
+          {a.team && <div className="row small muted" style={{ gap: 6 }}><Badge team={a.team} />{a.team.name}</div>}
+          <div className="award-figure num">{a.headline}</div>
+          <div className="small muted">{a.detail}</div>
+        </>
+      ) : <div className="muted small">Not enough data</div>}
+    </div>
+  )
+  return (
+    <div className="col" style={{ gap: 14 }}>
+      {place('gold', 'Champions', s.champion, null, <Crown size={16} />)}
+      <div className="grid halves">
+        {place('silver', '1st runners-up', s.runnerUp, s.runnerUpNote, <Medal size={16} />)}
+        {place('bronze', '2nd runners-up', s.secondRunnerUp, s.secondRunnerUpNote, <Medal size={16} />)}
+      </div>
+      <div className="grid thirds">
+        {award('Player of the series', <AwardIcon size={16} />, s.playerOfSeries)}
+        {award('Best batter', <Trophy size={16} />, s.bestBatter)}
+        {award('Best bowler', <Target size={16} />, s.bestBowler)}
+      </div>
+      <div className="card">
+        <div className="stat-chips" style={{ marginBottom: 0 }}>
+          <div><div className="k">Matches played</div><div className="v">{s.matchesPlayed}</div></div>
+          <div><div className="k">Fours</div><div className="v">{s.fours}</div></div>
+          <div><div className="k">Sixes</div><div className="v">{s.sixes}</div></div>
+          {s.highestScore && <div><div className="k">Highest score</div><div className="v">{s.highestScore}</div></div>}
+          {s.bestBowling && <div><div className="k">Best bowling</div><div className="v">{s.bestBowling}</div></div>}
+        </div>
+      </div>
+      <div className="small dim">Player of the series is the highest impact score across the tournament: runs, plus 20 a wicket, plus 10 for each catch, run out or stumping.</div>
     </div>
   )
 }
@@ -207,6 +256,7 @@ function Organiser({ data, reload }: { data: TournamentView; reload: () => Promi
   const t = data.tournament
   const [form, setForm] = useState({ ...t })
   const [teamName, setTeamName] = useState('')
+  const [creating, setCreating] = useState(false)
   const { data: allTeams, reload: reloadTeams } = useApi<TeamRef[]>('/teams')
   const [picked, setPicked] = useState<string[]>([])
   const inTournament = new Set(data.teams.map((e) => e.team.id))
@@ -245,7 +295,7 @@ function Organiser({ data, reload }: { data: TournamentView; reload: () => Promi
           <Field label="Venue"><input className="input" value={form.venue ?? ''} onChange={(e) => setForm({ ...form, venue: e.target.value })} /></Field>
         </div>
         <label className="check"><input type="checkbox" checked={form.doubleRound} onChange={(e) => setForm({ ...form, doubleRound: e.target.checked })} />Double round-robin (home and away)</label>
-        <button className="btn" style={{ alignSelf: 'flex-start' }} onClick={() => run(() => api('PUT', base, form), 'Settings saved. Regenerate fixtures to apply rule changes to matches.')}>Save settings</button>
+        <AsyncButton className="btn" style={{ alignSelf: 'flex-start' }} busyText="Saving…" onClick={() => run(() => api('PUT', base, form), 'Settings saved. Regenerate fixtures to apply rule changes to matches.')}>Save settings</AsyncButton>
       </div>
 
       <div className="card col">
@@ -260,7 +310,8 @@ function Organiser({ data, reload }: { data: TournamentView; reload: () => Promi
                   <option value="">No group</option>{['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'].map((g) => <option key={g} value={g}>Group {g}</option>)}
                 </select>
               )}
-              <button className="btn sm danger" onClick={async () => { if (await confirm({ title: `Remove ${e.team.name}?`, message: 'The team leaves this tournament. The team itself and its players are kept.', yes: 'Yes, remove', danger: true })) void run(() => api('DELETE', `${base}/teams/${e.team.id}`), 'Team removed') }}>Remove</button>
+              <AsyncButton className="btn sm danger" busyText="Removing…" confirmFirst={{ title: `Remove ${e.team.name}?`, message: 'The team leaves this tournament. The team itself and its players are kept.', yes: 'Yes, remove', danger: true }}
+                onClick={() => run(() => api('DELETE', `${base}/teams/${e.team.id}`), 'Team removed')}>Remove</AsyncButton>
             </span>
           </div>
         ))}
@@ -277,10 +328,10 @@ function Organiser({ data, reload }: { data: TournamentView; reload: () => Promi
                 ))}
               </div>
               <div className="row wrap">
-                <button className="btn" disabled={!picked.length}
+                <AsyncButton className="btn" disabled={!picked.length} busyText="Adding…"
                   onClick={() => run(async () => { for (const tid of picked) await api('POST', `${base}/teams`, { teamId: tid }); setPicked([]) }, picked.length === 1 ? 'Team added' : `${picked.length} teams added`)}>
                   Add {picked.length ? `${picked.length} selected` : 'selected'}
-                </button>
+                </AsyncButton>
                 <button className="btn ghost sm" type="button" onClick={() => setPicked(picked.length === available.length ? [] : available.map((x) => x.id))}>
                   {picked.length === available.length ? 'Clear' : 'Select all'}
                 </button>
@@ -288,8 +339,9 @@ function Organiser({ data, reload }: { data: TournamentView; reload: () => Promi
             </>
           ) : <div className="muted small">{allTeams && allTeams.length ? 'All your teams are already in this tournament.' : 'You have no teams yet. Create one below.'}</div>}
           <h3 style={{ marginTop: 6 }}>Or create a new team</h3>
-          <form className="row" onSubmit={(e) => { e.preventDefault(); void run(async () => { await api('POST', `${base}/teams`, { name: teamName }); setTeamName(''); await reloadTeams() }, 'Team created and added') }}>
-            <input className="input" placeholder="New team name" value={teamName} onChange={(e) => setTeamName(e.target.value)} required /><button className="btn">Create and add</button>
+          <form className="row" onSubmit={async (e) => { e.preventDefault(); if (creating) return; setCreating(true); await run(async () => { await api('POST', `${base}/teams`, { name: teamName }); setTeamName(''); await reloadTeams() }, 'Team created and added'); setCreating(false) }}>
+            <input className="input" placeholder="New team name" value={teamName} onChange={(e) => setTeamName(e.target.value)} required />
+            <button className="btn" disabled={creating} aria-busy={creating}><BusyLabel busy={creating} text="Creating…">Create and add</BusyLabel></button>
           </form>
         </div>
         {t.structure === 'GROUPS_KNOCKOUT' && (
@@ -297,7 +349,7 @@ function Organiser({ data, reload }: { data: TournamentView; reload: () => Promi
             <span className="muted small">Random draw into</span>
             <input className="input" style={{ width: 80 }} type="number" min={1} max={8} value={groups} onChange={(e) => setGroups(+e.target.value)} aria-label="Number of groups" />
             <span className="muted small">groups</span>
-            <button className="btn" onClick={() => run(() => api('POST', `${base}/draw`, { groups }), 'Groups drawn')}>Run the draw</button>
+            <AsyncButton className="btn" busyText="Drawing…" onClick={() => run(() => api('POST', `${base}/draw`, { groups }), 'Groups drawn')}>Run the draw</AsyncButton>
           </div>
         )}
       </div>
@@ -305,9 +357,9 @@ function Organiser({ data, reload }: { data: TournamentView; reload: () => Promi
       <div className="card col">
         <h2>3 · Fixtures</h2>
         <div className="muted small">Generates the full schedule: every team plays each other in its group, then knockouts are filled from the final group positions and earlier winners. Edit any fixture's date, ground or scorers from its match page.</div>
-        <button className="btn primary" style={{ alignSelf: 'flex-start' }} disabled={started} onClick={async () => {
-          if (!data.fixtures.length || await confirm({ title: 'Replace the fixtures?', message: 'The current schedule is thrown away and a fresh one is generated.', yes: 'Yes, replace', danger: true })) void run(() => api('POST', `${base}/fixtures`), 'Fixtures generated')
-        }}>{data.fixtures.length ? 'Regenerate fixtures' : 'Generate fixtures'}</button>
+        <AsyncButton className="btn primary" style={{ alignSelf: 'flex-start' }} disabled={started} busyText="Generating…"
+          confirmFirst={data.fixtures.length ? { title: 'Replace the fixtures?', message: 'The current schedule is thrown away and a fresh one is generated.', yes: 'Yes, replace', danger: true } : undefined}
+          onClick={() => run(() => api('POST', `${base}/fixtures`), 'Fixtures generated')}>{data.fixtures.length ? 'Regenerate fixtures' : 'Generate fixtures'}</AsyncButton>
         {started && <div className="muted small">Matches have started, so the schedule can no longer be regenerated.</div>}
       </div>
 
@@ -319,15 +371,15 @@ function Organiser({ data, reload }: { data: TournamentView; reload: () => Promi
             <Field label="Points (+ or −)"><input className="input" type="number" value={adjPoints} onChange={(e) => setAdjPoints(+e.target.value)} /></Field>
           </div>
           <Field label="Reason (shown publicly and logged)"><input className="input" value={adjReason} onChange={(e) => setAdjReason(e.target.value)} placeholder="e.g. Slow over rate" /></Field>
-          <button className="btn" style={{ alignSelf: 'flex-start' }} disabled={!adjReason.trim() || !adjTeam}
-            onClick={() => run(async () => { await api('POST', `${base}/adjustments`, { teamId: adjTeam, pointsDelta: adjPoints, reason: adjReason }); setAdjReason('') }, 'Adjustment recorded')}>Apply adjustment</button>
+          <AsyncButton className="btn" style={{ alignSelf: 'flex-start' }} disabled={!adjReason.trim() || !adjTeam} busyText="Applying…"
+            onClick={() => run(async () => { await api('POST', `${base}/adjustments`, { teamId: adjTeam, pointsDelta: adjPoints, reason: adjReason }); setAdjReason('') }, 'Adjustment recorded')}>Apply adjustment</AsyncButton>
           <div className="muted small">For a walkover or forfeit, open the fixture and use Manage → Set or override the result.</div>
         </div>
       )}
 
-      <button className="btn danger" style={{ alignSelf: 'flex-start' }} onClick={async () => {
-        if (await confirm({ title: `Delete ${t.name}?`, message: 'Every fixture, score and table in this tournament is deleted. This cannot be undone.', yes: 'Yes, delete', danger: true })) void run(async () => { await api('DELETE', base); nav('/tournaments') }, 'Deleted')
-      }}>Delete tournament</button>
+      <AsyncButton className="btn danger" style={{ alignSelf: 'flex-start' }} busyText="Deleting…"
+        confirmFirst={{ title: `Delete ${t.name}?`, message: 'Every fixture, score and table in this tournament is deleted. This cannot be undone.', yes: 'Yes, delete', danger: true }}
+        onClick={() => run(async () => { await api('DELETE', base); nav('/tournaments') }, 'Deleted')}>Delete tournament</AsyncButton>
     </div>
   )
 }

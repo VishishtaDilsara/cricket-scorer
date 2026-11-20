@@ -4,7 +4,7 @@ import { Plus, Trophy } from 'lucide-react'
 import { api, errorText, useApi } from '../api'
 import { useAuth } from '../auth'
 import type { TournamentCard } from '../types'
-import { Field, Modal, SignInPrompt, Status, fmtDate } from '../ui'
+import { BusyLabel, Field, Modal, SignInPrompt, Status, fmtDate } from '../ui'
 import toast from 'react-hot-toast'
 
 export const STRUCTURES: Record<string, string> = { LEAGUE: 'Round-robin league', GROUPS_KNOCKOUT: 'Groups then knockouts', KNOCKOUT: 'Straight knockout' }
@@ -24,12 +24,14 @@ export default function Tournaments() {
   const [overs, setOvers] = useState(20)
   const [startDate, setStart] = useState('')
   const [venue, setVenue] = useState('')
+  const [busy, setBusy] = useState(false)
   const create = async (e: FormEvent) => {
     e.preventDefault()
+    setBusy(true)
     try {
       const { id } = await api<{ id: string }>('POST', '/tournaments', { name, structure, overs, startDate: startDate || null, venue: venue || null })
       nav(`/tournaments/${id}?tab=manage`)
-    } catch (x) { toast.error(errorText(x)) }
+    } catch (x) { toast.error(errorText(x)); setBusy(false) }
   }
   return (
     <div className="page">
@@ -58,7 +60,7 @@ export default function Tournaments() {
               <Field label="Start date"><input className="input" type="date" value={startDate} onChange={(e) => setStart(e.target.value)} /></Field>
             </div>
             <Field label="Venue"><input className="input" value={venue} onChange={(e) => setVenue(e.target.value)} /></Field>
-            <button className="btn primary">Create tournament</button>
+            <button className="btn primary" disabled={busy} aria-busy={busy}><BusyLabel busy={busy} text="Creating…">Create tournament</BusyLabel></button>
           </form>
         </Modal>
       )}

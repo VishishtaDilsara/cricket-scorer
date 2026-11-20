@@ -1,7 +1,8 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { Check, Share2, X } from 'lucide-react'
 import type { MatchSummary, MatchView, TeamRef } from './types'
+import { confirm, type ConfirmOptions } from './confirm'
 
 const HUES = [199, 162, 262, 28, 340, 48, 215, 130]
 function hue(text: string) {
@@ -141,8 +142,18 @@ export function ShareButton({ title, url = window.location.href }: { title: stri
 
 export function Status({ loading, error }: { loading: boolean; error: string | null }) {
   if (error) return <div className="note error">{error}</div>
-  if (loading) return <div className="empty">Loading…</div>
+  if (loading) return <Loader />
   return null
+}
+
+/** Page-level loading state: a spinning ring with a label, announced to screen readers. */
+export function Loader({ text = 'Loading…' }: { text?: string }) {
+  return (
+    <div className="loader" role="status" aria-live="polite">
+      <span className="loader-ring" aria-hidden="true" />
+      <span>{text}</span>
+    </div>
+  )
 }
 
 export function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -156,4 +167,45 @@ export function roleTags(v: Pick<MatchView, 'roles'>, playerId: string | null): 
   if (!r) return ''
   const tags = [r.captainId === playerId && 'c', r.viceCaptainId === playerId && 'vc', r.keeperId === playerId && 'wk'].filter(Boolean)
   return ` (${tags.join(', ')})`
+}
+
+/** The players who can play for a side in this match: its playing XI when one was picked, otherwise the whole squad. */
+export function playingXi(v: Pick<MatchView, 'lineups'>, team: { id: string; players: { id: string; name: string }[] } | null) {
+  if (!team) return []
+  const xi = (v.lineups ?? []).find((l) => l.teamId === team.id)
+  return xi ? team.players.filter((p) => xi.playerIds.includes(p.id)) : team.players
+}
+
+/** Small spinning ring shown inside a busy button. */
+export function Spinner() {
+  return <span className="spinner" aria-hidden="true" />
+}
+
+/** A button label that switches to "Saving…" (or similar) with a spinner while `busy`. */
+export function BusyLabel({ busy, text, children }: { busy: boolean; text: string; children: ReactNode }) {
+  return busy ? <><Spinner />{text}</> : <>{children}</>
+}
+
+/**
+ * A button for an action that talks to the server. While the action runs it is disabled and shows
+ * `busyText` with a spinner. With `confirmFirst`, the yes/no pop-up is answered before it turns busy.
+ */
+export function AsyncButton({ onClick, busyText, confirmFirst, children, disabled, ...rest }:
+  Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'onClick'> & {
+    onClick: () => Promise<unknown> | unknown; busyText: string; confirmFirst?: ConfirmOptions
+  }) {
+  const [busy, setBusy] = useState(false)
+  const alive = useRef(true)
+  useEffect(() => () => { alive.current = false }, [])
+  const go = async () => {
+    if (busy) return
+    if (confirmFirst && !(await confirm(confirmFirst))) return
+    setBusy(true)
+    try { await onClick() } finally { if (alive.current) setBusy(false) }
+  }
+  return (
+    <button type="button" {...rest} disabled={disabled || busy} aria-busy={busy} onClick={go}>
+      <BusyLabel busy={busy} text={busyText}>{children}</BusyLabel>
+    </button>
+  )
 }
